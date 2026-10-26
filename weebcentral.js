@@ -15,7 +15,7 @@ const mangayomiSources = [
     "version": "0.0.2",
     "pkgPath": "manga/src/en/weebcentral.js",
     "notes": "Personal fixes: empty searches, query encoding, default filters. Based on Mallyd11 community source.",
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/weebcentral.js",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/weebcentral.js?v=0.0.2",
     "isNsfw": false,
     "dateFormat": "",
     "dateFormatLocale": "",

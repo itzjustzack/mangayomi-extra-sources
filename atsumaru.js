@@ -14,7 +14,7 @@ const mangayomiSources = [
     "dateFormatLocale": "",
     "isNsfw": false,
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/atsumaru.js",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/atsumaru.js?v=0.0.4",
     "apiUrl": "",
     "version": "0.0.4",
     "isManga": true,
