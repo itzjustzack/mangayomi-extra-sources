@@ -1,0 +1,25 @@
+[
+  {
+    "id": 2363170537,
+    "name": "Weeb Central Personal",
+    "lang": "en",
+    "baseUrl": "https://weebcentral.com",
+    "apiUrl": "",
+    "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=https://weebcentral.com",
+    "typeSource": "single",
+    "isManga": true,
+    "itemType": 0,
+    "hasCloudflare": true,
+    "version": "0.0.1",
+    "pkgPath": "manga/src/en/weebcentral.js",
+    "notes": "Personal fixes: empty searches, query encoding, default filters. Based on Mallyd11 community source.",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/weebcentral.js",
+    "isNsfw": false,
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1
+  }
+]

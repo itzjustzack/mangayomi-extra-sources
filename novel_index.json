@@ -1,0 +1,25 @@
+[
+  {
+    "name": "NovelFire Personal",
+    "id": 3749199444,
+    "lang": "en",
+    "baseUrl": "https://novelfire.net",
+    "apiUrl": "",
+    "iconUrl": "https://m.media-amazon.com/images/I/31957gKv8WL.jpg",
+    "typeSource": "single",
+    "isNsfw": false,
+    "hasCloudflare": false,
+    "itemType": 2,
+    "version": "0.0.1",
+    "pkgPath": "novel/src/en/NovelFire.js",
+    "notes": "Personal fixes: exclude recommendations from search; reject missing chapter text. Based on Mallyd11 community source.",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/novelfire.js",
+    "isManga": false,
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1
+  }
+]
