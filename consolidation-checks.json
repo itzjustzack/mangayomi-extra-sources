@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "name": "Asura Scans",
+      "id": 2847619031,
+      "version": "0.0.15",
+      "filterGroups": 8,
+      "implementationUnchanged": true
+    },
+    {
+      "name": "Atsumaru Personal",
+      "id": 3971268045,
+      "version": "0.0.4",
+      "filterGroups": 9,
+      "implementationUnchanged": true
+    },
+    {
+      "name": "Weeb Central Personal",
+      "id": 2363170537,
+      "version": "0.0.2",
+      "filterGroups": 6,
+      "implementationUnchanged": true
+    },
+    {
+      "name": "NovelFire Personal",
+      "id": 3749199444,
+      "version": "0.0.2",
+      "filterGroups": 3,
+      "implementationUnchanged": true
+    }
+  ]
+}

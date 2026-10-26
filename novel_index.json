@@ -10,7 +10,7 @@
     "isNsfw": false,
     "hasCloudflare": false,
     "itemType": 2,
-    "version": "0.0.1",
+    "version": "0.0.2",
     "pkgPath": "novel/src/en/NovelFire.js",
     "notes": "Personal fixes: exclude recommendations from search; reject missing chapter text. Based on Mallyd11 community source.",
     "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/novelfire.js",

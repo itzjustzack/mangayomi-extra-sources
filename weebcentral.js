@@ -12,7 +12,7 @@ const mangayomiSources = [
     "isManga": true,
     "itemType": 0,
     "hasCloudflare": true,
-    "version": "0.0.1",
+    "version": "0.0.2",
     "pkgPath": "manga/src/en/weebcentral.js",
     "notes": "Personal fixes: empty searches, query encoding, default filters. Based on Mallyd11 community source.",
     "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/weebcentral.js",

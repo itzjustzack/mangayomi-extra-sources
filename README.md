@@ -1,31 +1,36 @@
-# Personal Mangayomi extra sources
+# Zack's Personal Mangayomi Extensions
 
-Weeb Central Personal and NovelFire Personal, based on the Apache-2.0 community sources maintained by Mallyd11.
+One repository for all four personal extensions.
 
-## Add to Mangayomi
+| Source | Type | Version | Preserved source ID |
+|---|---|---|---|
+| Asura Scans | Manga | 0.0.15 | 2847619031 |
+| Atsumaru Personal | Manga | 0.0.4 | 3971268045 |
+| Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
+| NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 
-Add the manga repository in Settings > Browse:
+## One catalogue link
 
-https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/manga_index.json
+https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/index.json
 
-Add the novel repository separately:
+In Mangayomi, add this same URL under both Manga repositories and Novel repositories in Settings > Browse. Mangayomi filters the list by item type. No anime extensions are included in this personal catalogue; other community extensions keep their existing repositories.
 
-https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/novel_index.json
+Already using the manga_index.json and novel_index.json links from this repository? Those remain supported and now list all personal sources for that type.
 
-Install the Personal extension from each catalogue. These have separate source IDs and do not replace other installed extensions. Test browsing and reading before adding favorites; no library migration is required for trying them.
+Refresh Extensions and update installed personal extensions. Names, IDs, types, base URLs, and source implementations are preserved; this is a metadata relocation, not a source migration. Do not uninstall the extensions or migrate the library.
 
-## Fixes
+Older Asura/Atsumaru repository index links are retained as compatibility catalogues pointing to these unified source files. Their old source files are preserved. Once updates work through the new catalogue, the older repository entries can be removed from Mangayomi's repository settings.
 
-Weeb Central: safe searches when no pagination button exists; URL-encoded search text; default filters when none are supplied. Existing status, type, translation, sort, and tag filters retained.
+## What changed
 
-NovelFire: search returns the primary result list rather than unrelated popular suggestions; missing chapter content produces an error rather than displaying a whole error/challenge page. Existing genre, sort, status, and long-catalogue behavior retained.
+Asura and Atsumaru source files now live here alongside Weeb Central and NovelFire. Version numbers were bumped so installed extensions can pick up the new URLs. index.json contains all four, manga_index.json contains the three manga sources, and novel_index.json contains NovelFire.
 
-## Validation, 2026-10-26
+## Validation and limits
 
-Weeb Central live checks passed: popular, latest, page 2, title search, empty results, Manhwa + Martial Arts filters, chapter URLs, page list and first image (Solo Leveling, 201 chapters).
+Consolidation checks passed for unique source IDs, matching manifest/embedded metadata, valid JavaScript, filter initialization, and byte-identical implementation bodies after the metadata declaration. No live-library records were changed. On-device update/repository reassignment still needs verification.
 
-NovelFire live checks passed: popular, latest, page 2, title search, empty search after the fix, genre filter and chapter-list generation. Reader requests encountered rate limiting and inconsistent responses. A separately fetched live chapter was successfully parsed into 96 paragraphs; end-to-end reader reliability and on-device behavior remain unverified. Long chapter catalogues retain upstream URL synthesis when its fetch budget is exhausted; 3225 returned rows are not 3225 individually verified chapter links.
+Weeb Central previously passed live browsing, pagination, latest, search, empty results, filters, chapter lists, and first-image loading. NovelFire search fixes passed; reader requests encountered rate limiting and inconsistent responses. A fetched live chapter parsed into 96 paragraphs, but end-to-end reader reliability remains unverified. Upstream NovelFire long-catalogue URL synthesis is retained; generated links are not individually verified.
 
-Focused regression checks passed for empty results, encoded punctuation, excluding suggestions, chapter cleanup and rejecting non-chapter pages.
+## Credits
 
-Both extensions still need verification inside Mangayomi on the iPhone.
+Weeb Central and NovelFire derive from Mallyd11/mangayomi-anime-extensions under Apache-2.0; see LICENSE and NOTICE. Original source comments and attribution are retained.

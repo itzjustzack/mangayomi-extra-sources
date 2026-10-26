@@ -2,3 +2,5 @@ Derived from Mallyd11/mangayomi-anime-extensions, licensed under Apache License 
 Weeb Central upstream authors: Swakshan, Schnitzel5, kodjodevf; MallyD11 modifications.
 NovelFire upstream modifications: MallyD11.
 Personal modifications, 2026-10-26: separate metadata, safe empty pagination, encoded queries, filter defaults, primary novel listing only, explicit missing chapter content errors.
+
+Asura Scans and Atsumaru Personal imported from itzjustzack personal repositories with implementation and source identity preserved. Consolidation changes only metadata (version and source URL).

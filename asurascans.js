@@ -1,0 +1,1131 @@
+const mangayomiSources = [
+  {
+    "name": "Asura Scans",
+    "lang": "en",
+    "baseUrl": "https://asurascans.com",
+    "apiUrl": "",
+    "iconUrl": "https://asurascans.com/favicon.ico",
+    "typeSource": "single",
+    "itemType": 0,
+    "isNsfw": false,
+    "version": "0.0.15",
+    "pkgPath": "",
+    "notes": "Adds search filters: genres, status, manga type, sorting, minimum chapters, author and artist",
+    "id": 2847619031,
+    "dateFormat": "",
+    "dateFormatLocale": "",
+    "hasCloudflare": false,
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js",
+    "isManga": true,
+    "isFullData": false,
+    "appMinVerReq": "0.5.0",
+    "additionalParams": "",
+    "sourceCodeLanguage": 1
+  }
+];
+
+// Every method returns plain data (objects, arrays, strings, numbers and
+// booleans). Async methods may return the value directly or a Promise.
+//
+// Helpers you can use anywhere in this file:
+//
+//   const client = new Client();
+//   await client.get(url, headers) and client.post(url, headers, body)
+//       Make HTTP requests. The response's text is `res.body`.
+//   const doc = new Document(html);
+//       Turns an HTML string into a document you can search:
+//         doc.select("div.item")    all matches, as an array
+//         doc.selectFirst("h1")     the first match
+//       On a match: .text is its text and .attr("href") an attribute.
+//       doc.xpath(expression) searches with XPath instead.
+//   parseDates(dates, format, locale)
+//       Described in getDetail.
+//   new SharedPreferences().get(key)
+//       Described in getSourcePreferences.
+
+function cleanAsuraText(value) {
+  if (!value) return "";
+
+  // UTF-8 punctuation can arrive decoded as Latin-1 or Windows-1252.
+  // Replace only known broken sequences so valid Unicode stays intact.
+  const repairs = [
+    [/\u00E2(?:\u0080|\u20AC)(?:\u0099|\u2122)/g, "\u2019"],
+    [/\u00E2(?:\u0080|\u20AC)(?:\u0098|\u02DC)/g, "\u2018"],
+    [/\u00E2(?:\u0080|\u20AC)(?:\u009C|\u0153)/g, "\u201C"],
+    [/\u00E2(?:\u0080|\u20AC)\u009D/g, "\u201D"],
+    [/\u00E2(?:\u0080|\u20AC)(?:\u0093|\u201C)/g, "\u2013"],
+    [/\u00E2(?:\u0080|\u20AC)(?:\u0094|\u201D)/g, "\u2014"],
+    [/\u00E2(?:\u0080|\u20AC)\u00A6/g, "\u2026"],
+    [/\u00C2\u00A0/g, " "]
+  ];
+  let text = String(value);
+  for (const repair of repairs) {
+    text = text.replace(repair[0], repair[1]);
+  }
+  return text.trim();
+}
+
+class DefaultExtension extends MProvider {
+    /**
+     * Optional. Extra HTTP headers to send with this source's requests.
+     * @param {string} url the source's base URL
+     * @returns {Object<string, string>} for example
+     *     {"Referer": "https://example.com"}, or {} if none are needed
+     */
+    
+getHeaders(url) {
+  return {
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "https://asurascans.com/"
+  };
+}
+
+
+    /**
+     * Returns one page of the source's popular entries (shown when browsing).
+     * @param {number} page starts at 1 and goes up while more pages exist
+     * @returns {Promise<{list: Object[], hasNextPage: boolean}>}
+     *     list: the entries on this page. Each entry (a manga, anime or
+     *     novel) is an object with a name (the title), a link (the URL or
+     *     path of its page) and an imageUrl (its cover image). All three
+     *     are needed.
+     *     hasNextPage: true if there is another page after this one.
+     * @example
+     * return {
+     *     list: [
+     *         { name: "Title", link: "/title-page", imageUrl: "https://example.com/cover.jpg" }
+     *     ],
+     *     hasNextPage: true
+     * };
+     */
+
+
+
+async getPopular(page) {
+  if (page > 1) {
+    return {
+      list: [],
+      hasNextPage: false
+    };
+  }
+
+  const client = new Client();
+  const url = "https://asurascans.com/series-ranking";
+
+  const res = await client.get(
+    url,
+    this.getHeaders(url)
+  );
+
+  const doc = new Document(res.body);
+  const links = doc.select('a[href*="/comics/"]');
+
+  const list = [];
+  const seen = new Set();
+
+  for (const item of links) {
+    const link = item.attr("href");
+    const img = item.selectFirst("img");
+
+    
+
+
+const name = cleanAsuraText(
+  img ? (img.attr("alt") || item.text) : item.text
+)
+  .replace(/^\s*\d+\s+/, "")
+  .replace(/\s+\d+(?:\.\d+)?\s*$/, "")
+  .trim();
+
+
+
+
+    let imageUrl = img
+      ? (img.attr("data-src") || img.attr("src") || "")
+      : "";
+
+    if (!link || !name || seen.has(link)) continue;
+
+    seen.add(link);
+
+    if (imageUrl.startsWith("/")) {
+      imageUrl = "https://asurascans.com" + imageUrl;
+    }
+
+    list.push({
+      name: name,
+      link: link,
+      imageUrl: imageUrl
+    });
+
+    if (list.length >= 30) break;
+  }
+
+  return {
+    list: list,
+    hasNextPage: false
+  };
+}
+
+
+
+
+
+    /**
+     * Optional. Whether this source has a "latest updates" listing.
+     * @returns {boolean} true if you implement getLatestUpdates, otherwise
+     *     false
+     */
+    get supportsLatest() {
+    return true;
+}
+
+    /**
+     * Returns one page of the most recently updated entries.
+     * Only used when supportsLatest returns true.
+     * @param {number} page starts at 1 and goes up while more pages exist
+     * @returns {Promise<{list: Object[], hasNextPage: boolean}>}
+     *     list: the entries on this page, each an object with name, link and
+     *     imageUrl.
+     *     hasNextPage: true if there is another page after this one.
+     * @example
+     * return {
+     *     list: [
+     *         { name: "Title", link: "/title-page", imageUrl: "https://example.com/cover.jpg" }
+     *     ],
+     *     hasNextPage: true
+     * };
+     */
+    
+async getLatestUpdates(page) {
+  const client = new Client();
+
+  const browseUrl =
+    "https://asurascans.com/browse/comics?page=" + page;
+
+  const res = await client.get(
+    browseUrl,
+    this.getHeaders(browseUrl)
+  );
+
+  const doc = new Document(res.body);
+  const links = doc.select('a[href*="/comics/"]');
+
+  const list = [];
+  const seen = new Set();
+
+  for (const item of links) {
+    const link = item.attr("href");
+    const img = item.selectFirst("img");
+
+    
+const name = cleanAsuraText(
+  img ? (img.attr("alt") || item.text) : item.text
+);
+
+
+    const imageUrl = img
+      ? (img.attr("data-src") || img.attr("src") || "")
+      : "";
+
+    if (!link || !name || seen.has(link)) continue;
+
+    seen.add(link);
+
+    list.push({
+      name: name,
+      link: link,
+      imageUrl: imageUrl.startsWith("/")
+        ? "https://asurascans.com" + imageUrl
+        : imageUrl
+    });
+  }
+
+  let hasNextPage = false;
+
+  if (list.length > 0) {
+    try {
+      const nextUrl =
+        "https://asurascans.com/browse/comics?page=" +
+        (page + 1);
+
+      const nextRes = await client.get(
+        nextUrl,
+        this.getHeaders(nextUrl)
+      );
+
+      const nextDoc = new Document(nextRes.body);
+      const nextLinks =
+        nextDoc.select('a[href*="/comics/"]');
+
+      hasNextPage = nextLinks.length > 0;
+    } catch (error) {
+      hasNextPage = true;
+    }
+  }
+
+  return {
+    list: list,
+    hasNextPage: hasNextPage
+  };
+}
+
+
+    /**
+     * Returns one page of search results.
+     * @param {string} query the text the user typed
+     * @param {number} page starts at 1 and goes up while more pages exist
+     * @param {Object[]} filters the filters from getFilterList, with the
+     *     user's selections applied. For each filter, type is the
+     *     identifier you gave it in getFilterList and state is what the
+     *     user chose: for "SelectFilter" the number of the chosen option
+     *     (the option is values[state], and its value is what you gave it),
+     *     for "CheckBox" true if checked, for "TriState" 0 ignored,
+     *     1 included or 2 excluded, for "TextFilter" the text typed, for
+     *     "GroupFilter" an array of the filters inside the group.
+     * @returns {Promise<{list: Object[], hasNextPage: boolean}>}
+     *     list: the results on this page, each an object with name, link and
+     *     imageUrl.
+     *     hasNextPage: true if there is another page after this one.
+     * @example
+     * return {
+     *     list: [
+     *         { name: "Title", link: "/title-page", imageUrl: "https://example.com/cover.jpg" }
+     *     ],
+     *     hasNextPage: false
+     * };
+     */
+    
+async search(query, page, filters) {
+  filters = filters && filters.length ? filters : this.getFilterList();
+  const selected = (index, fallback) => {
+    const f = filters[index];
+    return f && f.values && f.values[f.state] ? f.values[f.state].value : fallback;
+  };
+  const params = [];
+  const add = (key, value) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.push(encodeURIComponent(key) + '=' + encodeURIComponent(value));
+    }
+  };
+  const pageNumber = Math.max(1, Math.floor(Number(page) || 1));
+  add('search', (query || '').trim());
+  add('sort', selected(0, 'latest'));
+  add('order', selected(1, 'desc'));
+  const group = filters[2];
+  add('genres', group && Array.isArray(group.state)
+    ? group.state.filter(item => item.state === true).map(item => item.value).join(',') : '');
+  add('status', selected(3, ''));
+  add('type', selected(4, ''));
+  add('min_chapters', selected(5, ''));
+  add('author', filters[6] && typeof filters[6].state === 'string' ? filters[6].state.trim() : '');
+  add('artist', filters[7] && typeof filters[7].state === 'string' ? filters[7].state.trim() : '');
+  add('limit', 20);
+  add('offset', (pageNumber - 1) * 20);
+  const url = 'https://api.asurascans.com/api/series?' + params.join('&');
+  const res = await new Client().get(url, this.getHeaders(url));
+  if (res.statusCode != 200) throw new Error('Asura search returned HTTP ' + res.statusCode);
+  const body = JSON.parse(res.body);
+  // The API serializes an empty result set as null rather than [].
+  if (body.data === null && body.meta && body.meta.per_page) body.data = [];
+  if (!Array.isArray(body.data)) throw new Error('Asura returned an unexpected search response');
+  const list = [];
+  const seen = new Set();
+  for (const item of body.data) {
+    // Use the same public comic URLs as existing library entries.
+    const link = item.public_url;
+    const name = cleanAsuraText(item.title || item.name || '');
+    if (!link || !link.startsWith('/comics/') || !name || seen.has(link)) continue;
+    seen.add(link);
+    let imageUrl = item.cover_url || item.cover || item.thumb || '';
+    if (imageUrl.startsWith('/')) imageUrl = 'https://asurascans.com' + imageUrl;
+    list.push({ name, link, imageUrl });
+  }
+  const total = body.meta && body.meta.total != null ? Number(body.meta.total) : NaN;
+  return { list, hasNextPage: Number.isFinite(total)
+    ? pageNumber * 20 < total : body.data.length === 20 };
+}
+
+    /**
+     * Returns the full details of one entry, including its list of chapters
+     * (episodes, for anime).
+     * @param {string} url the link you gave this entry in the listing or
+     *     search results
+     * @returns {Promise<Object>} an object with the fields below. Leave out
+     *     any field the source does not provide.
+     *     status: 0 ongoing, 1 completed, 2 on hiatus, 3 canceled,
+     *     4 publishing finished. Any other value means unknown. Convert
+     *     the website's wording to these numbers yourself.
+     *     chapters: one object per chapter, or per episode for anime. name
+     *     and url are required. dateUpload is optional: the upload time in
+     *     milliseconds since 1970, written as a string. scanlator is
+     *     optional: the group that released it. Anime episodes can also have
+     *     thumbnailUrl, description, duration, downloadSize and isFiller.
+     *     To get dateUpload from the website's date text, use
+     *     parseDates(dates, format, locale): it takes an array of date texts,
+     *     the format the website writes dates in and its language, and
+     *     returns an array of strings in the form dateUpload expects. It
+     *     also understands wording like "2 days ago". For example
+     *     parseDates(["Jan 5, 2024", "2 days ago"], "MMM d, yyyy", "en").
+     * @example
+     * return {
+     *     name: "Title",
+     *     imageUrl: "https://example.com/cover.jpg",
+     *     description: "A short summary.",
+     *     author: "Author name",
+     *     artist: "Artist name",
+     *     status: 0,
+     *     genre: ["Action", "Drama"],
+     *     chapters: [
+     *         { name: "Chapter 1", url: "/chapter-1", dateUpload: "1700000000000", scanlator: "Group name" }
+     *     ]
+     * };
+     */
+    
+
+async getDetail(url) {
+  const client = new Client();
+  const fullUrl = url.startsWith("http")
+    ? url
+    : "https://asurascans.com" + url;
+
+  const res = await client.get(
+    fullUrl,
+    this.getHeaders(fullUrl)
+  );
+
+  const doc = new Document(res.body);
+  const title = doc.selectFirst("h1");
+
+  return {
+    name: title
+  ? cleanAsuraText(title.text)
+  : "Title not found",
+    
+imageUrl: (() => {
+  const meta = doc.selectFirst('meta[property="og:image"]');
+  let src = meta ? meta.attr("content") : "";
+
+  if (!src) {
+    const img = doc.selectFirst('img[src*="cover"]');
+    src = img ? img.attr("src") : "";
+  }
+
+  if (src.startsWith("/")) {
+    src = "https://asurascans.com" + src;
+  }
+
+  return src;
+})(),
+
+    
+description: (() => {
+  const meta = doc.selectFirst('meta[name="description"]');
+  const text = meta ? meta.attr("content") : "";
+  return cleanAsuraText(text) || "No description available";
+})(),
+    author: "",
+    artist: "",
+    status: 0,
+    genre: [],
+    chapters: doc.select('a[href*="/chapter/"]')
+  .map(item => ({
+
+
+name: (() => {
+  const title = item.selectFirst("span");
+  const name = title ? title.text.trim() : item.text.trim();
+
+
+if (name.toLowerCase().includes("test")) {
+  return "Chapter 0 - Test";
+}
+
+  if (name === "First Chapter") {
+    return "Chapter 1";
+  }
+
+  
+if (name.toLowerCase().includes("test chapter")) {
+  return "Chapter 0 - Test";
+}
+
+
+  return name;
+})(),
+
+
+
+    
+url: item.attr("href"),
+
+dateUpload: (() => {
+  const dateElement = item.selectFirst(
+    "div.text-right span"
+  );
+
+  if (!dateElement) return 0;
+
+  const dateText = dateElement.text.trim();
+  
+const lower = dateText.toLowerCase();
+const now = Date.now();
+let timestamp;
+
+if (lower === "today") {
+  timestamp = now;
+} else if (lower === "yesterday") {
+  timestamp = now - 86400000;
+} else if (lower === "last week") {
+  timestamp = now - 7 * 86400000;
+} else {
+  const match = lower.match(
+    /(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago/
+  );
+
+  if (match) {
+    const units = {
+      minute: 60000,
+      hour: 3600000,
+      day: 86400000,
+      week: 604800000,
+      month: 2592000000,
+      year: 31536000000
+    };
+
+    timestamp = now - Number(match[1]) * units[match[2]];
+  } else {
+    timestamp = Date.parse(dateText);
+  }
+}
+
+
+  
+
+return Number.isFinite(timestamp)
+  ? String(Math.floor(timestamp))
+  : "";
+
+
+})()
+
+  }))
+  
+.filter(item =>
+  item.url &&
+  item.name &&
+  !item.name.toLowerCase().includes("test") &&
+  (
+    /^Chapter\s+\d+(?:\.\d+)?\b/i.test(item.name) ||
+    /^(Prologue|Epilogue|Side Story|Special)\b/i.test(item.name)
+  )
+)
+
+  };
+}
+
+
+
+    // For novel html content
+    /**
+     * Returns the text of one novel chapter as an HTML string.
+     * @param {string} name the chapter's name
+     * @param {string} url the chapter's url from getDetail
+     * @returns {Promise<string>}
+     */
+    async getHtmlContent(name, url) {
+        throw new Error("getHtmlContent not implemented");
+    }
+
+    // Clean html up for reader
+    /**
+     * Takes the HTML returned by getHtmlContent and returns it as a cleaned
+     * up HTML string, ready to be shown in the reader.
+     * @param {string} html
+     * @returns {Promise<string>}
+     */
+    async cleanHtmlContent(html) {
+        throw new Error("cleanHtmlContent not implemented");
+    }
+
+    // For anime episode video list
+    /**
+     * Returns the available videos of one episode, for example one per
+     * quality or server.
+     * @param {string} url the episode's url from getDetail
+     * @returns {Promise<Object[]>} one object per video. url (the direct
+     *     video link), quality (a label shown to the user, for example
+     *     "1080p" or "Server 1") and originalUrl (the video's original URL,
+     *     often the same as url) are needed; a video missing url or
+     *     originalUrl is skipped. headers (needed to play the video),
+     *     subtitles and audios are optional.
+     *     For common video hosts there are ready-made helpers that take the
+     *     host's page URL and return the array of videos for you, so you
+     *     can return it as it is. Some take extra values, such as a label
+     *     prefix or a quality: streamWishExtractor, filemoonExtractor,
+     *     streamTapeExtractor, doodExtractor, voeExtractor, okruExtractor,
+     *     sibnetExtractor, mp4UploadExtractor, gogoCdnExtractor,
+     *     myTvExtractor, vidBomExtractor, streamlareExtractor,
+     *     sendVidExtractor and yourUploadExtractor. For example
+     *     return await streamWishExtractor(url, "StreamWish - ").
+     * @example
+     * return [
+     *     {
+     *         url: "https://example.com/video.m3u8",
+     *         quality: "1080p",
+     *         originalUrl: "https://example.com/video.m3u8",
+     *         headers: { "Referer": "https://example.com" },
+     *         subtitles: [{ file: "https://example.com/en.vtt", label: "English" }],
+     *         audios: []
+     *     }
+     * ];
+     */
+    async getVideoList(url) {
+        throw new Error("getVideoList not implemented");
+    }
+
+    // For manga chapter pages
+    /**
+     * Returns the pages of one chapter, in reading order.
+     * @param {string} url the chapter's url from getDetail
+     * @returns {Promise<Array<string | {url: string, headers: Object<string, string>}>>}
+     *     one item per page: either the image URL as a string, or an object
+     *     with the image url and the headers needed to load it.
+     * @example
+     * return ["https://example.com/1.jpg", "https://example.com/2.jpg"];
+     */
+    
+async getPageList(url) {
+  const client = new Client();
+
+  const fullUrl = url.startsWith("http")
+    ? url
+    : "https://asurascans.com" + url;
+
+  const res = await client.get(
+    fullUrl,
+    this.getHeaders(fullUrl)
+  );
+
+  const doc = new Document(res.body);
+  const images = doc.select("img");
+  const pages = [];
+
+  for (const img of images) {
+    let src = img.attr("data-src") ||
+              img.attr("src") ||
+              "";
+
+    if (!src) continue;
+
+    if (src.startsWith("/")) {
+      src = "https://asurascans.com" + src;
+    }
+
+    if (!src.startsWith("http")) continue;
+
+    pages.push(src);
+  }
+
+  return pages;
+}
+
+
+    /**
+     * Optional. Returns the filters shown on the search screen, for example
+     * a genre or status selector. Return [] for no filters.
+     * @returns {Object[]} filter objects. Each has a type_name that is one
+     *     of "SelectFilter" (a dropdown), "CheckBox" (a checkbox), "TriState"
+     *     (ignore, include or exclude), "TextFilter" (a text field),
+     *     "SortFilter" (sort options with a direction), "GroupFilter" (a
+     *     group of other filters), "HeaderFilter" (a label) or
+     *     "SeparatorFilter" (a divider). Other values are ignored.
+     * @example
+     * return [
+     *     {
+     *         type_name: "SelectFilter", type: "sort", name: "Order by", state: 0,
+     *         values: [
+     *             { type_name: "SelectOption", name: "Popular", value: "popular" },
+     *             { type_name: "SelectOption", name: "Newest", value: "newest" }
+     *         ]
+     *     },
+     *     { type_name: "CheckBox", type: "completed", name: "Completed only", value: "completed", state: false },
+     *     { type_name: "TriState", type: "genre", name: "Action", value: "action", state: 0 },
+     *     { type_name: "TextFilter", type: "author", name: "Author", state: "" },
+     *     { type_name: "GroupFilter", type: "genres", name: "Genres", state: [
+     *         { type_name: "TriState", type: "genre", name: "Drama", value: "drama", state: 0 }
+     *     ] },
+     *     { type_name: "HeaderFilter", type: "", name: "Section title" },
+     *     { type_name: "SeparatorFilter", type: "" }
+     * ];
+     */
+    getFilterList() {
+        return [
+  {
+    "type_name": "SelectFilter",
+    "type": "sort",
+    "name": "Sort By",
+    "state": 0,
+    "values": [
+      {
+        "type_name": "SelectOption",
+        "name": "Latest Update",
+        "value": "latest"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Popularity",
+        "value": "popular"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Rating",
+        "value": "rating"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Title",
+        "value": "title"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Newest Added",
+        "value": "newest"
+      }
+    ]
+  },
+  {
+    "type_name": "SelectFilter",
+    "type": "direction",
+    "name": "Sort Direction",
+    "state": 0,
+    "values": [
+      {
+        "type_name": "SelectOption",
+        "name": "Descending",
+        "value": "desc"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Ascending",
+        "value": "asc"
+      }
+    ]
+  },
+  {
+    "type_name": "GroupFilter",
+    "type": "genres",
+    "name": "Genres",
+    "state": [
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Action",
+        "value": "action",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Adventure",
+        "value": "adventure",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Comedy",
+        "value": "comedy",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Crazy MC",
+        "value": "crazy-mc",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Dark Fantasy",
+        "value": "dark-fantasy",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Demon",
+        "value": "demon",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Drama",
+        "value": "drama",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Dungeons",
+        "value": "dungeons",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Fantasy",
+        "value": "fantasy",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Game",
+        "value": "game",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Genius MC",
+        "value": "genius-mc",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Isekai",
+        "value": "isekai",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Magic",
+        "value": "magic",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Martial Arts",
+        "value": "martial-arts",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Murim",
+        "value": "murim",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Mystery",
+        "value": "mystery",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Necromancer",
+        "value": "necromancer",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Overpowered",
+        "value": "overpowered",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Psychological",
+        "value": "psychological",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Regression",
+        "value": "regression",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Reincarnation",
+        "value": "reincarnation",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Revenge",
+        "value": "revenge",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Romance",
+        "value": "romance",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "School Life",
+        "value": "school-life",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Sci-fi",
+        "value": "sci-fi",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Shoujo",
+        "value": "shoujo",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Shounen",
+        "value": "shounen",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Slice of Life",
+        "value": "slice-of-life",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Supernatural",
+        "value": "supernatural",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "System",
+        "value": "system",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Tower",
+        "value": "tower",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Tragedy",
+        "value": "tragedy",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Transmigration",
+        "value": "transmigration",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Villain",
+        "value": "villain",
+        "state": false
+      },
+      {
+        "type_name": "CheckBox",
+        "type": "genre",
+        "name": "Violence",
+        "value": "violence",
+        "state": false
+      }
+    ]
+  },
+  {
+    "type_name": "SelectFilter",
+    "type": "status",
+    "name": "Publishing Status",
+    "state": 0,
+    "values": [
+      {
+        "type_name": "SelectOption",
+        "name": "Any",
+        "value": ""
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Ongoing",
+        "value": "ongoing"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Completed",
+        "value": "completed"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Hiatus",
+        "value": "hiatus"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Dropped",
+        "value": "dropped"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Axed",
+        "value": "axed"
+      }
+    ]
+  },
+  {
+    "type_name": "SelectFilter",
+    "type": "type",
+    "name": "Manga Type",
+    "state": 0,
+    "values": [
+      {
+        "type_name": "SelectOption",
+        "name": "Any",
+        "value": ""
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Manhwa",
+        "value": "manhwa"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Manhua",
+        "value": "manhua"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "Mangatoon / Manga",
+        "value": "manga"
+      }
+    ]
+  },
+  {
+    "type_name": "SelectFilter",
+    "type": "min_chapters",
+    "name": "Minimum Chapters",
+    "state": 0,
+    "values": [
+      {
+        "type_name": "SelectOption",
+        "name": "Any",
+        "value": ""
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "1+",
+        "value": "1"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "10+",
+        "value": "10"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "25+",
+        "value": "25"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "50+",
+        "value": "50"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "100+",
+        "value": "100"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "150+",
+        "value": "150"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "200+",
+        "value": "200"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "300+",
+        "value": "300"
+      },
+      {
+        "type_name": "SelectOption",
+        "name": "500+",
+        "value": "500"
+      }
+    ]
+  },
+  {
+    "type_name": "TextFilter",
+    "type": "author",
+    "name": "Author",
+    "state": ""
+  },
+  {
+    "type_name": "TextFilter",
+    "type": "artist",
+    "name": "Artist",
+    "state": ""
+  }
+];
+    }
+
+    /**
+     * Optional. Returns the settings the user can change for this source.
+     * Return [] for no settings.
+     * @returns {Object[]} one object per setting, with a unique key (so its
+     *     value can be saved and read back) and one of checkBoxPreference,
+     *     switchPreferenceCompat, listPreference, multiSelectListPreference
+     *     or editTextPreference. To read a setting back, for example in
+     *     getPopular, use new SharedPreferences().get("show_extra"). It
+     *     returns, depending on the type: for checkBoxPreference and
+     *     switchPreferenceCompat a boolean, for editTextPreference the text,
+     *     for listPreference the chosen entry's value, and for
+     *     multiSelectListPreference the array of chosen values.
+     * @example
+     * return [{
+     *     key: "show_extra",
+     *     switchPreferenceCompat: {
+     *         title: "Show extra content",
+     *         summary: "A short explanation.",
+     *         value: false
+     *     }
+     * }];
+     */
+    getSourcePreferences() {
+        throw new Error("getSourcePreferences not implemented");
+    }
+}
