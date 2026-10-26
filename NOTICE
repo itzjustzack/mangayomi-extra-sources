@@ -4,3 +4,5 @@ NovelFire upstream modifications: MallyD11.
 Personal modifications, 2026-10-26: separate metadata, safe empty pagination, encoded queries, filter defaults, primary novel listing only, explicit missing chapter content errors.
 
 Asura Scans and Atsumaru Personal imported from itzjustzack personal repositories with implementation and source identity preserved. Consolidation changes only metadata (version and source URL).
+
+AnimeParadise Personal derives from Mallyd11/mangayomi-anime-extensions/javascript/anime/src/en/animeparadise.js under Apache-2.0. Personal changes on 2026-10-26: metadata, pagination, query encoding, headers, detail title, subtitle propagation, preferred-resolution ordering.

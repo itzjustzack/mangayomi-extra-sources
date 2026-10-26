@@ -1,0 +1,53 @@
+{
+  "checkedAt": "2026-10-26T06:09:39.697Z",
+  "name": "AnimeParadise",
+  "checks": [
+    "Catalogue pagination",
+    "Latest updates",
+    "Empty search",
+    "Search pagination",
+    "Genre filter",
+    "Two titles: episodes, HLS playlists and media segment bytes"
+  ],
+  "samples": [
+    {
+      "title": "Naruto",
+      "episodes": 220,
+      "streams": 2,
+      "quality": "Auto",
+      "media": {
+        "kind": "HLS master",
+        "nested": {
+          "kind": "HLS",
+          "segmentStatus": 200,
+          "contentType": "image/jpeg",
+          "bytesRead": 68638,
+          "signature": "474000100000b00d0001c100000001ef"
+        }
+      },
+      "subtitleTracks": 5
+    },
+    {
+      "title": "Ore Dake Level Up na Ken",
+      "episodes": 12,
+      "streams": 2,
+      "quality": "Auto",
+      "media": {
+        "kind": "HLS master",
+        "nested": {
+          "kind": "HLS",
+          "segmentStatus": 200,
+          "contentType": "image/jpeg",
+          "bytesRead": 69634,
+          "signature": "474000100000b00d0001c100000001ef"
+        }
+      },
+      "subtitleTracks": 8
+    }
+  ],
+  "ok": true,
+  "publishedName": "AnimeParadise Personal",
+  "sourceId": 4182889351,
+  "version": "0.0.1",
+  "iphonePlaybackVerified": false
+}
