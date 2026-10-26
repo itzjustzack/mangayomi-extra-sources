@@ -6,3 +6,5 @@ Personal modifications, 2026-10-26: separate metadata, safe empty pagination, en
 Asura Scans and Atsumaru Personal imported from itzjustzack personal repositories with implementation and source identity preserved. Consolidation changes only metadata (version and source URL).
 
 AnimeParadise Personal derives from Mallyd11/mangayomi-anime-extensions/javascript/anime/src/en/animeparadise.js under Apache-2.0. Personal changes on 2026-10-26: metadata, pagination, query encoding, headers, detail title, subtitle propagation, preferred-resolution ordering.
+
+2026-10-26, AnimeParadise Personal 0.0.2: corrected site sort enums and explicit episode airDate/unknown date handling.

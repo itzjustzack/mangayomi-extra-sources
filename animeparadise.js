@@ -11,7 +11,7 @@ const mangayomiSources = [
     "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=https://animeparadise.moe",
     "typeSource": "single",
     "itemType": 1,
-    "version": "0.0.1",
+    "version": "0.0.2",
     "pkgPath": "anime/src/en/animeparadise.js",
     "notes": "Personal AnimeParadise: fixed search pagination and encoding; subtitles on all qualities. Based on MallyD11 community source.",
     "isManga": false,
@@ -19,7 +19,7 @@ const mangayomiSources = [
     "hasCloudflare": false,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/animeparadise.js?v=0.0.1",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/animeparadise.js?v=0.0.2",
     "dateFormat": "",
     "dateFormatLocale": "",
     "additionalParams": "",
@@ -81,7 +81,7 @@ class DefaultExtension extends MProvider {
   }
 
   async getPopular(page) {
-    return await this.formList("search?q=", page);
+    return await this.formList("search?q=&sort=POPULARITY&post=true&v=1", page);
   }
 
   async getLatestUpdates(page) {
@@ -89,7 +89,7 @@ class DefaultExtension extends MProvider {
     if (pref === "recent_ep") {
       return await this.formList("ep/recently-added", page);
     }
-    return await this.formList(`search?q=&sort=${encodeURIComponent('{"postDate":-1}')}`, page);
+    return await this.formList("search?q=&sort=POST_DATE&post=true&v=1", page);
   }
   async search(query, page, filters) {
     try {
@@ -117,6 +117,21 @@ class DefaultExtension extends MProvider {
     );
   }
 
+  // Never substitute the current date when the source has no episode date.
+  parseEpisodeDate(value) {
+    if (value === null || value === undefined || value === "") return "";
+    var text = String(value).trim();
+    if (!text) return "";
+    var timestamp;
+    if (/^-?\d+(?:\.\d+)?$/.test(text)) {
+      timestamp = Number(text);
+      if (Math.abs(timestamp) < 100000000000) timestamp *= 1000;
+    } else {
+      timestamp = Date.parse(text);
+    }
+    return Number.isFinite(timestamp) && timestamp !== 0 ? String(Math.trunc(timestamp)) : "";
+  }
+
   async getDetail(url) {
     var linkSlug = this.source.baseUrl + `/anime/`;
     if (url.includes(linkSlug)) url = url.replace(linkSlug, "");
@@ -135,7 +150,7 @@ class DefaultExtension extends MProvider {
     epAPI.data.forEach((ep) => {
       var epName = `E${ep.number}: ${ep.title}`;
       var epUrl = `${ep.uid}?origin=${ep.origin}`;
-      chapters.push({ name: epName, url: epUrl });
+      chapters.push({ name: epName, url: epUrl, dateUpload: this.parseEpisodeDate(ep.airDate) });
     });
     details.link = `${linkSlug}${url}`;
     details.chapters = chapters.reverse();
@@ -328,5 +343,6 @@ class DefaultExtension extends MProvider {
     ];
   }
 }
+
 
 

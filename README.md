@@ -8,7 +8,7 @@ One repository for all five personal extensions.
 | Atsumaru Personal | Manga | 0.0.4 | 3971268045 |
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
-| AnimeParadise Personal | Anime | 0.0.1 | 4182889351 |
+| AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
 
 ## One catalogue link
 
@@ -43,3 +43,13 @@ Add the same index.json link under Anime repositories, refresh Anime Extensions 
 Fixed upstream search pagination and URL encoding; added explicit app headers and latest support, title metadata, subtitles on every quality, and preferred-resolution ordering. Filters include genre, season, and year.
 
 Live checks on 2026-10-26 passed for catalogue/search pagination, latest, empty search, genre filtering, Naruto (220 episodes) and Solo Leveling / Ore Dake Level Up na Ken (12 episodes). Both sample episode streams returned HLS playlists and more than 64 KB of MPEG-TS segment bytes; subtitle tracks were present. This verifies network/media reachability, not decoded audiovisual playback in the iPhone player. CDN responses label TS data as image/jpeg; packet signatures confirmed the actual media format. Provider or proxy availability can change.
+
+## AnimeParadise 0.0.2 fixes
+
+Popular now uses the site's POPULARITY sort; Recently added anime uses POST_DATE. The older JSON sort parameter was ignored by the API, causing identical lists. Recently added episode mode remains available in source preferences.
+
+Episode dates now use the source airDate when supplied and explicitly return an empty string when missing or invalid. This prevents Mangayomi from filling missing dates with the current time for newly loaded episodes. The tested Naruto episode-list API provides no dates for all 220 episodes, so their correct representation is unknown/blank. No dates are invented from episode numbers or database IDs.
+
+Existing episode rows may retain dates already cached by Mangayomi; the inspected client updater preserves existing dateUpload values when refreshing rows. This extension release cannot by itself guarantee removal of those old cached dates. Do not delete series or reading progress to clear dates.
+
+Validation passed for distinct live Popular/Latest lists, popular pagination, ISO/seconds/milliseconds conversion, unknown/invalid dates, and date mapping. Playback implementation is unchanged from the user-confirmed working 0.0.1 version.
