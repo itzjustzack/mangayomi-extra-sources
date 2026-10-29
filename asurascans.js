@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.16",
+    "version": "0.0.17",
     "pkgPath": "",
-    "notes": "Fix full synopsis, author, artist, genres and publishing status; show Asura rating, type, chapter count and alternate names in description.",
+    "notes": "Description shows Asura rating first, followed by the full synopsis.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.16",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.17",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -434,20 +434,14 @@ async getDetail(url) {
   };
   const publishingStatus = (statusText || detailValue("Status")).toLowerCase();
   const statusMap = { ongoing: 0, completed: 1, hiatus: 2, dropped: 3, axed: 3, cancelled: 3, canceled: 3 };
-  const type = detailValue("Type");
   const parts = [];
   const synopsis = textOf("#description-text") || schema.description ||
     (() => { const node = doc.selectFirst('meta[name="description"]'); return node ? node.attr("content") : ""; })();
-  if (synopsis) parts.push(cleanAsuraText(synopsis));
   const rating = schema.aggregateRating;
   if (rating && Number(rating.ratingValue) > 0) {
     parts.push("Asura Rating: " + rating.ratingValue + "/" + (rating.bestRating || "10"));
   }
-  if (publishingStatus) parts.push("Status: " + publishingStatus);
-  if (type) parts.push("Type: " + type);
-  if (schema.numberOfEpisodes != null) parts.push("Chapters: " + schema.numberOfEpisodes);
-  const alternativeNames = cleanAsuraText(schema.alternateName || "");
-  if (alternativeNames) parts.push("Alternative Names:\n" + alternativeNames);
+  if (synopsis) parts.push(cleanAsuraText(synopsis));
 
 
   return {
