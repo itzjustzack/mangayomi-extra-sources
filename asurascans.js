@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.15",
+    "version": "0.0.16",
     "pkgPath": "",
-    "notes": "Adds search filters: genres, status, manga type, sorting, minimum chapters, author and artist",
+    "notes": "Fix full synopsis, author, artist, genres and publishing status; show Asura rating, type, chapter count and alternate names in description.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.15",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.16",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -394,8 +394,61 @@ async getDetail(url) {
     this.getHeaders(fullUrl)
   );
 
+  if (res.statusCode != 200) throw new Error("Asura details returned HTTP " + res.statusCode);
   const doc = new Document(res.body);
   const title = doc.selectFirst("h1");
+  if (!title) throw new Error("Asura did not return a manga details page");
+
+  // Prefer full on-page text; SEO descriptions are deliberately truncated.
+  const textOf = selector => {
+    const node = doc.selectFirst(selector);
+    return node ? cleanAsuraText(node.text) : "";
+  };
+  let schema = {};
+  for (const script of doc.select('script[type="application/ld+json"]')) {
+    try {
+      const parsed = JSON.parse(script.text);
+      const items = Array.isArray(parsed) ? parsed : (parsed["@graph"] || [parsed]);
+      const found = items.find(item => item["@type"] === "ComicSeries");
+      if (found) { schema = found; break; }
+    } catch (_) {}
+  }
+  const creator = (value, selector) => {
+    const names = Array.isArray(value) ? value : [value];
+    return names.map(item => typeof item === "string" ? item : (item && item.name) || "")
+      .filter(Boolean).join(", ") || textOf(selector);
+  };
+  const author = creator(schema.author, 'a[href*="author="]');
+  const artist = creator(schema.illustrator, 'a[href*="artist="]');
+  const genres = Array.isArray(schema.genre) ? schema.genre.slice() :
+    doc.select('a[href*="genres="]').map(item => cleanAsuraText(item.text));
+  const uniqueGenres = Array.from(new Set(genres.filter(Boolean)));
+  const statusText = textOf('a[href*="status="]') || textOf('[data-series-status]');
+  // The desktop details panel stores Status and Type in label/value rows.
+  const detailValue = label => {
+    for (const row of doc.select('div.flex-1.rounded.px-4.py-3')) {
+      const text = cleanAsuraText(row.text).replace(/\s+/g, " ");
+      if (text.toLowerCase().startsWith(label.toLowerCase())) return text.slice(label.length).trim();
+    }
+    return "";
+  };
+  const publishingStatus = (statusText || detailValue("Status")).toLowerCase();
+  const statusMap = { ongoing: 0, completed: 1, hiatus: 2, dropped: 3, axed: 3, cancelled: 3, canceled: 3 };
+  const type = detailValue("Type");
+  const parts = [];
+  const synopsis = textOf("#description-text") || schema.description ||
+    (() => { const node = doc.selectFirst('meta[name="description"]'); return node ? node.attr("content") : ""; })();
+  if (synopsis) parts.push(cleanAsuraText(synopsis));
+  const rating = schema.aggregateRating;
+  if (rating && Number(rating.ratingValue) > 0) {
+    parts.push("Asura Rating: " + rating.ratingValue + "/" + (rating.bestRating || "10"));
+  }
+  if (publishingStatus) parts.push("Status: " + publishingStatus);
+  if (type) parts.push("Type: " + type);
+  if (schema.numberOfEpisodes != null) parts.push("Chapters: " + schema.numberOfEpisodes);
+  const alternativeNames = cleanAsuraText(schema.alternateName || "");
+  if (alternativeNames) parts.push("Alternative Names:\n" + alternativeNames);
+
 
   return {
     name: title
@@ -419,15 +472,11 @@ imageUrl: (() => {
 })(),
 
     
-description: (() => {
-  const meta = doc.selectFirst('meta[name="description"]');
-  const text = meta ? meta.attr("content") : "";
-  return cleanAsuraText(text) || "No description available";
-})(),
-    author: "",
-    artist: "",
-    status: 0,
-    genre: [],
+description: parts.join("\n\n"),
+    author,
+    artist,
+    status: Object.prototype.hasOwnProperty.call(statusMap, publishingStatus) ? statusMap[publishingStatus] : 5,
+    genre: uniqueGenres,
     chapters: doc.select('a[href*="/chapter/"]')
   .map(item => ({
 
