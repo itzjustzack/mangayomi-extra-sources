@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.1",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix.js?v=0.0.1",
+  "version": "0.0.2",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.2.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,17 +21,17 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.1 - rendered-page source; Webview verification may be required."
+  "notes": "Personal Comix 0.0.2 - direct chapter pages; large titles can take several minutes."
 }];
 
 class DefaultExtension extends MProvider {
   get supportsLatest() { return true; }
   getHeaders() { return { Referer: this.source.baseUrl + "/" }; }
-  async runPage(url, mode) {
+  async runPage(url, mode, requestedPage = 1) {
     if (typeof evaluateJavascriptViaWebview !== "function")
       throw new Error("This source needs Mangayomi's WebView support. Update Mangayomi first.");
-    const script = "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + ");";
-    let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "browse" ? 55 : 240);
+    const script = "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");";
+    let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
     let result;
     try { result = JSON.parse(raw); if (typeof result === "string") result = JSON.parse(result); }
@@ -66,7 +66,28 @@ class DefaultExtension extends MProvider {
       throw new Error("Unrecognized Comix link. Search for the title in this source.");
     return this.source.baseUrl + path;
   }
-  async getDetail(url) { return this.runPage(this.normalizeUrl(url), "detail"); }
+  async getDetail(url) {
+    const base = this.normalizeUrl(url);
+    const first = await this.runPage(base + "?page=1", "detail", 1);
+    const pagination = first.chapterPagination;
+    if (!pagination || pagination.page !== 1) throw new Error("Comix did not load chapter page 1.");
+    const chapters = new Map(first.chapters.map(c => [c.url, c]));
+    for (let page = 2; page <= pagination.lastPage; page++) {
+      const next = await this.runPage(base + "?page=" + page, "detail", page);
+      if (!next.chapterPagination || next.chapterPagination.page !== page)
+        throw new Error("Comix did not load chapter page " + page + ". Open Webview and retry.");
+      const before = chapters.size;
+      for (const chapter of next.chapters) chapters.set(chapter.url, chapter);
+      if (chapters.size === before) throw new Error("Comix repeated a chapter page; retry loading the title.");
+    }
+    if (chapters.size !== pagination.total) throw new Error("The Comix chapter list changed or is incomplete. Retry the title.");
+    first.chapters = [...chapters.values()].sort((a,b) => {
+      const number = c => Number((/chapter-([\d.]+)/.exec(c.url) || [0,0])[1]);
+      return number(b)-number(a);
+    });
+    delete first.chapterPagination;
+    return first;
+  }
   async getPageList(url) { const result = await this.runPage(this.normalizeUrl(url), "reader"); return result.pages; }
   getFilterList() {
     const select = (name, options) => ({type_name:"SelectFilter",name,state:0,values:options.map(p=>({type_name:"SelectOption",name:p[0],value:p[1]}))});
@@ -80,16 +101,17 @@ class DefaultExtension extends MProvider {
 }
 
 // Runs inside the app's own headless WebView, after the website loads.
-async function comixPageTask(mode) {
+async function comixPageTask(mode, requestedPage = 1) {
   if (window.__zackComixRunning) return;
   window.__zackComixRunning = true;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const started = Date.now();
-  const limit = mode === "browse" ? 45000 : 220000;
+  const limit = mode === "reader" ? 220000 : 55000;
+  let stage = mode === "detail" ? "title metadata" : mode;
   const text = el => (el && el.textContent || "").replace(/\s+/g, " ").trim();
   const send = value => window.flutter_inappwebview.callHandler("setResponse", JSON.stringify(value));
   const deadline = () => {
-    if (Date.now() - started >= limit) throw new Error("Comix timed out before the complete " + mode + " loaded. Open Webview and retry.");
+    if (Date.now() - started >= limit) throw new Error("Comix timed out loading " + stage + ". Open Webview and retry.");
   };
   const check = () => {
     deadline();
@@ -155,41 +177,34 @@ async function comixPageTask(mode) {
     if (mode === "detail") {
       let manga = null;
       while (!(manga = readManga())) { check(); await sleep(300); }
+      stage = "chapter-list page " + requestedPage;
       const expectedPath = manga.url;
-      const seen = new Map();
-      let complete = !manga.hasChapters;
-      while (!complete) {
+      let rows = [], total = 0, lastPage = 1;
+      while (true) {
         check();
-        let rows = chapterRows();
-        if (!rows.length) { await sleep(400); continue; }
-        for (const row of rows) if (row.url.startsWith(expectedPath + "/")) seen.set(row.url,row);
         const section = document.querySelector(".mpage__chapters");
-        if (!section) throw new Error("Comix chapter section changed.");
+        rows = chapterRows().filter(row => row.url.startsWith(expectedPath + "/"));
+        if (manga.hasChapters === false && section && /no chapters/i.test(text(section))) break;
+        if (!rows.length || !section) { await sleep(400); continue; }
         const hint = text(section.querySelector(".mchap-foot__hint"));
-        const countMatch = /of\s+([\d,]+)\s+items/i.exec(hint);
-        const total = countMatch ? Number(countMatch[1].replace(/,/g,"")) : null;
-        if (total !== null && seen.size >= total) { complete = true; break; }
+        const counts = /Showing\s+([\d,]+)\s+to\s+([\d,]+)\s+of\s+([\d,]+)\s+items/i.exec(hint);
         const active = section.querySelector('button[aria-current="page"]');
-        const page = Number(text(active)) || 1;
-        const next = [...section.querySelectorAll(".npager button")].find(b => text(b) === String(page + 1));
-        const more = [...section.querySelectorAll("button")].find(b => /^load more(?: chapters)?$/i.test(text(b)));
-        const control = next || more;
-        if (!control || control.disabled) {
-          if (total !== null && seen.size < total) throw new Error("Comix chapter list is incomplete; retry instead of refreshing your library.");
-          complete = true; break;
+        const activePage = Number(text(active)) || 1;
+        if (activePage !== requestedPage) { await sleep(350); continue; }
+        if (counts) {
+          const from = Number(counts[1].replace(/,/g,""));
+          const to = Number(counts[2].replace(/,/g,""));
+          total = Number(counts[3].replace(/,/g,""));
+          if (rows.length !== to-from+1) { await sleep(350); continue; }
+          lastPage = Math.ceil(total / 20);
+          if (from !== (requestedPage-1)*20+1) throw new Error("Unexpected Comix chapter pagination.");
+        } else {
+          if (section.querySelectorAll(".npager button").length > 1) { await sleep(350); continue; }
+          total = rows.length; lastPage = 1;
         }
-        const old = rows.map(r => r.url).join("|");
-        await sleep(2700);
-        control.scrollIntoView({block:"center"}); control.click();
-        let changed = false;
-        for (let attempt = 0; attempt < 40; attempt++) {
-          check(); await sleep(300); rows = chapterRows();
-          if (rows.length && rows.map(r=>r.url).join("|") !== old) { changed = true; break; }
-        }
-        if (!changed) throw new Error("Comix stopped loading the chapter list. Open Webview and retry.");
-        if (location.pathname !== expectedPath) throw new Error("Comix navigated away from the title page.");
+        break;
       }
-      const chapters = [...seen.values()].sort((a,b)=>b.number-a.number).map(({number,...chapter})=>chapter);
+      const chapters = rows.sort((a,b)=>b.number-a.number).map(({number,...chapter})=>chapter);
       const labels = list => (list || []).map(v=>v.title || v.name).filter(Boolean);
       const score = Number(manga.ratedAvg);
       return send({
@@ -198,7 +213,8 @@ async function comixPageTask(mode) {
         description:(score > 0 ? "Rating: " + score + "/10\n\n" : "") + (manga.synopsis || ""),
         author:labels(manga.authors).join(", "),artist:labels(manga.artists).join(", "),
         genre:[manga.type,...labels(manga.genres),...labels(manga.demographics),...labels(manga.formats)].filter(Boolean),
-        status:({releasing:0,finished:1,on_hiatus:2,discontinued:3})[manga.status] ?? 5,chapters
+        status:({releasing:0,finished:1,on_hiatus:2,discontinued:3})[manga.status] ?? 5,chapters,
+        chapterPagination:{page:requestedPage,total,lastPage}
       });
     }
     if (mode === "reader") {
