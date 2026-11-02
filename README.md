@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.7 | 3689042176 |
+| Comix Personal | Manga | 0.0.8 | 3689042176 |
 
 ## One catalogue link
 
@@ -114,3 +114,15 @@ Source preferences include Reader mode: Direct (faster) and Compatibility (slowe
 Complete title/chapter results are cached in extension-local preferences for five minutes, across extension instances. Only fully collected and count-validated catalogues are written. The cache holds at most eight titles and 1.5 million serialized characters, excludes expired entries, and ignores storage failures. It contains source metadata only. Chapter list cache can be disabled in source preferences for a fresh check each time. Updates can otherwise remain unseen until that five-minute cache expires. First-time catalogue collection retains 0.0.6's paged/batched behavior and can still be slow.
 
 Tests passed for direct links returned before image completion, correct ordering and empty image headers, absence of conversion calls, mode selection, persistent complete-list reuse, expiry, copy isolation and cache disable. A real browser test loaded three original WebPs from hosts that reject Referer and returned a 352-character URL payload; its prepared three-slot fixture collected links in 8 ms, which is not a whole-chapter or iPhone timing claim. Existing compatibility, crop, request lifecycle and chapter-batch tests passed. Native iPhone playback and first-time full live catalogue speed remain to be confirmed.
+
+## Comix Personal 0.0.8: faster repeat chapter-list refreshes
+
+The user confirmed the 0.0.7 direct reader is fixed. Reader functions, direct image headers, dimensions and compatibility mode are byte-identical to that working version. This release targets title/chapter-list loading.
+
+Complete cached lists still return immediately for five minutes. After that, Faster refresh checks the newest 20 entries in one title-page load and reuses the previously complete list only when the reported total matches the known unique entries plus newly observed uploads, with at least one known overlapping entry. Fresh metadata and checked chapter rows replace old values. An unexplained increase, deletion, absence of overlap or expired full scan triggers full collection. Reuse does not reset the full-scan timestamp: a full scan is required after six hours. This improves repeat visits, not first-ever catalogue loading.
+
+Limit: an older edit or a deletion replaced by an older addition with unchanged total and newest page can be missed until the next full scan. Choose Chapter list refresh > Full collection to avoid incremental reuse after the ordinary five-minute cache; disable Chapter list cache for a full collection on every opening. No partial list is written as a completed cache, and cache/storage failure does not overwrite a complete list.
+
+Full collection now reuses each WebView for up to ten chapter-list pages within the existing bounded time budget, rather than up to three. A slow or stalled navigation returns its verified progress and resumes in another WebView. Navigation checks reacquire the chapter section each poll because React can replace the DOM element; waiting on the old detached element could waste eight seconds before fallback. Total count and duplicate checks remain enforced. This does not reduce Comix's number of 20-entry pages, but can reduce browser startups.
+
+Checks passed for unchanged-list refresh, exact new-upload merging, fallback for older additions/deletions, six-hour expiry, full-collection preference and cache preservation after network errors. A captured-page fixture with synthetic continuation walked six pages despite replacing the chapter section each time. A simulated 1,370-entry catalogue needed seven ideal ten-page WebView batches versus the previous 23 three-page batches; this is not a live timing or guaranteed on-device batch count. All previous reader, request lifecycle, browse and image tests passed, and a source comparison verified the working reader functions are unchanged. Live full-catalogue speed and iPhone timings remain unverified.

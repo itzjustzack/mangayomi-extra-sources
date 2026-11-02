@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.7",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.7.js",
+  "version": "0.0.8",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.8.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,7 +21,7 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.7 - direct images without Referer; complete chapter lists cached for five minutes."
+  "notes": "Personal Comix 0.0.8 - incremental chapter refresh and longer browser reuse; direct reader retained."
 }];
 
 class DefaultExtension extends MProvider {
@@ -31,16 +31,22 @@ class DefaultExtension extends MProvider {
   preference(key,fallback) {
     try { return new SharedPreferences().get(key) || fallback; } catch (_) { return fallback; }
   }
-  async cachedCatalogue(base,value) {
+  async cachedCatalogue(base,value,options={}) {
     if (this.preference("comix_catalogue_cache","300") === "0" || typeof SharedPreferences !== "function") return null;
     try {
       const prefs = new SharedPreferences();
       const raw = await prefs.getString("comix_complete_catalogues_v1","[]");
       const saved = JSON.parse(raw);
       if (!Array.isArray(saved)) return null;
-      let entries = saved.filter(item=>item && item.expires>Date.now() && item.data && Array.isArray(item.data.chapters));
-      if (!value) { const found=entries.find(item=>item.base===base);return found ? found.data : null; }
-      entries = [{base,expires:Date.now()+300000,data:value},...entries.filter(item=>item.base!==base)].slice(0,8);
+      const fullScanAt = item=>Number(item.fullScanAt || item.expires-300000);
+      let entries = saved.filter(item=>item && fullScanAt(item)>Date.now()-21600000 && item.data && Array.isArray(item.data.chapters));
+      if (!value) {
+        const found=entries.find(item=>item.base===base);
+        if (!found) return null;
+        if (options.allowStale) return {...found,fullScanAt:fullScanAt(found)};
+        return found.expires>Date.now() ? found.data : null;
+      }
+      entries = [{base,expires:Date.now()+300000,fullScanAt:options.fullScanAt || Date.now(),data:value},...entries.filter(item=>item.base!==base)].slice(0,8);
       let json=JSON.stringify(entries);
       while (json.length>1500000 && entries.length>1) { entries.pop();json=JSON.stringify(entries); }
       if (json.length<=1500000) await prefs.setString("comix_complete_catalogues_v1",json);
@@ -123,9 +129,29 @@ class DefaultExtension extends MProvider {
     const base = this.normalizeUrl(url);
     const cached = await this.cachedCatalogue(base);
     if (cached) return cached;
-    const first = await this.runPage(base + "?page=1", "detailBatch", 1);
+    const stale = this.preference("comix_chapter_refresh","smart") === "full" ? null :
+      await this.cachedCatalogue(base,undefined,{allowStale:true});
+    // Recheck the newest page before reusing any older chapter entries.
+    const first = await this.runPage(base + "?page=1",stale ? "detail" : "detailBatch",1);
     const pagination = first.chapterPagination;
     if (!pagination || pagination.page !== 1) throw new Error("Comix did not load chapter page 1.");
+    if (stale) {
+      const known = new Map(stale.data.chapters.map(chapter=>[chapter.url,chapter]));
+      const newChapters = first.chapters.filter(chapter=>!known.has(chapter.url));
+      const overlaps = first.chapters.some(chapter=>known.has(chapter.url));
+      // A count increase beyond the new entries in the checked page means
+      // older additions may exist; collect everything instead of guessing.
+      if (overlaps && known.size === stale.data.chapters.length && pagination.total === known.size+newChapters.length) {
+        for (const chapter of first.chapters) known.set(chapter.url,chapter);
+        first.chapters = [...known.values()].sort((a,b)=>{
+          const number=c=>Number((/chapter-([\d.]+)/.exec(c.url)||[0,0])[1]);
+          return number(b)-number(a);
+        });
+        delete first.chapterPagination;
+        await this.cachedCatalogue(base,first,{fullScanAt:stale.fullScanAt});
+        return first;
+      }
+    }
     const chapters = new Map(first.chapters.map(c => [c.url, c]));
     let previousEnd = pagination.toPage || 1;
     if (previousEnd < 1 || previousEnd > pagination.lastPage) throw new Error("Invalid Comix chapter batch.");
@@ -166,12 +192,13 @@ class DefaultExtension extends MProvider {
   getSourcePreferences() {
     return [
       {key:"comix_reader_mode",listPreference:{title:"Reader mode",summary:"Direct loads original images. Compatibility prepares JPEG copies before opening.",valueIndex:0,entries:["Direct (faster)","Compatibility (slower)"],entryValues:["direct","compatibility"]}},
-      {key:"comix_catalogue_cache",listPreference:{title:"Chapter list cache",summary:"Reuse complete lists for five minutes. Disable to check every opening for updates.",valueIndex:0,entries:["Five minutes","Disabled"],entryValues:["300","0"]}}
+      {key:"comix_catalogue_cache",listPreference:{title:"Chapter list cache",summary:"Reuse complete lists for five minutes. Disable for a full collection every opening.",valueIndex:0,entries:["Five minutes","Disabled"],entryValues:["300","0"]}},
+      {key:"comix_chapter_refresh",listPreference:{title:"Chapter list refresh",summary:"Faster checks newest entries and reuses known chapters for up to six hours. Full collection catches older edits or replacements sooner.",valueIndex:0,entries:["Faster refresh","Full collection"],entryValues:["smart","full"]}}
     ];
   }
 }
 
-// Reuse a loaded title page for up to three adjacent chapter pages. If the
+// Reuse a loaded title page for up to ten adjacent chapter pages. If the
 // site's navigation does not settle quickly, return only the verified batch;
 // getDetail continues from the next page in a fresh WebView.
 async function comixDetailBatchTask(requestedPage) {
@@ -202,7 +229,7 @@ async function comixDetailBatchTask(requestedPage) {
     };
     add(first,requestedPage);
     let end = requestedPage;
-    while (end < pagination.lastPage && end < requestedPage+2 && Date.now()-started < 40000) {
+    while (end < pagination.lastPage && end < requestedPage+9 && Date.now()-started < 35000) {
       const section = document.querySelector(".mpage__chapters");
       const next = section && ([...section.querySelectorAll(".npager button")].find(button=>Number(button.textContent.trim())===end+1) ||
         section.querySelector('button[aria-label="Next page"]'));
@@ -213,8 +240,10 @@ async function comixDetailBatchTask(requestedPage) {
       const navigationStarted = Date.now();
       let ready = false;
       while (Date.now()-navigationStarted < 8000 && Date.now()-started < 45000) {
-        const active = section.querySelector('.npager button[aria-current="page"]');
-        const anchor = section.querySelector("a.mchap-row__primary");
+        // React may replace the section while switching pages.
+        const current = document.querySelector(".mpage__chapters");
+        const active = current && current.querySelector('.npager button[aria-current="page"]');
+        const anchor = current && current.querySelector("a.mchap-row__primary");
         if (active && Number(active.textContent.trim()) === end+1 && anchor && anchor.getAttribute("href") !== previousUrl) { ready=true;break; }
         await sleep(150);
       }
