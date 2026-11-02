@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.3",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.3.js",
+  "version": "0.0.4",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.4.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,7 +21,7 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.3 - browser-decoded reader images; large titles can take several minutes."
+  "notes": "Personal Comix 0.0.4 - smaller reader images and split tall strips for smoother scrolling."
 }];
 
 class DefaultExtension extends MProvider {
@@ -30,7 +30,7 @@ class DefaultExtension extends MProvider {
   async runPage(url, mode, requestedPage = 1) {
     if (typeof evaluateJavascriptViaWebview !== "function")
       throw new Error("This source needs Mangayomi's WebView support. Update Mangayomi first.");
-    const script = "const comixImageDataUrl = " + comixImageDataUrl.toString() + ";" +
+    const script = "const comixImagePages = " + comixImagePages.toString() + ";" +
       "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");";
     let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
@@ -238,12 +238,12 @@ async function comixPageTask(mode, requestedPage = 1) {
         for (let attempt=0;attempt<60 && !imageUrls.has(index);attempt++) { check();collect();await sleep(200); }
         if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
         stage = "reader image " + index + " of " + total;
-        const imageData = await comixImageDataUrl(imageUrls.get(index));
-        pages.set(index,{url:imageData,headers:{}});
+        const imageData = await comixImagePages(imageUrls.get(index));
+        pages.set(index,imageData.map(url=>({url,headers:{}})));
       }
       collect();
       if (pages.size !== total) throw new Error("Comix returned an incomplete reader.");
-      return send({pages:[...pages.entries()].sort((a,b)=>a[0]-b[0]).map(p=>p[1])});
+      return send({pages:[...pages.entries()].sort((a,b)=>a[0]-b[0]).flatMap(p=>p[1])});
     }
     throw new Error("Unsupported Comix operation.");
   } catch (error) { return send({error:String(error.message || error)}); }
@@ -251,7 +251,7 @@ async function comixPageTask(mode, requestedPage = 1) {
 
 // Runs in the same WebView as the reader. JPEG data URIs avoid a second native
 // image download and normalize image formats for the app's image decoder.
-async function comixImageDataUrl(url) {
+async function comixImagePages(url) {
   if (!/^https:\/\//i.test(url)) throw new Error("Comix returned an invalid image URL.");
   const controller = new AbortController();
   const abort = setTimeout(() => controller.abort(), 20000);
@@ -273,18 +273,29 @@ async function comixImageDataUrl(url) {
         img.src = objectUrl;
       });
       if (!img.naturalWidth || !img.naturalHeight) throw new Error("Comix image has no dimensions.");
-      const scale = Math.min(1,Math.sqrt(12000000/(img.naturalWidth*img.naturalHeight)));
+      // Bound decoded memory per reader tile instead of decoding long strips
+      // into a single large texture while scrolling on a phone.
+      const scale = Math.min(1,900/img.naturalWidth);
+      const width = Math.max(1,Math.floor(img.naturalWidth*scale));
+      const height = Math.max(1,Math.floor(img.naturalHeight*scale));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1,Math.floor(img.naturalWidth*scale));
-      canvas.height = Math.max(1,Math.floor(img.naturalHeight*scale));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Image conversion is unavailable in this WebView.");
-      ctx.fillStyle = "#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.drawImage(img,0,0,canvas.width,canvas.height);
-      const encoded = canvas.toDataURL("image/jpeg",0.90);
-      canvas.width=1;canvas.height=1;
-      if (!encoded.startsWith("data:image/jpeg;base64,")) throw new Error("Comix image conversion failed.");
-      return encoded;
+      const tiles = [];
+      try {
+        for (let top=0;top<height;top+=1600) {
+          canvas.width = width;canvas.height = Math.min(1600,height-top);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Image conversion is unavailable in this WebView.");
+          ctx.fillStyle = "#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+          // Adjacent crops share the same boundaries in the original image.
+          const sourceTop = top*img.naturalHeight/height;
+          const sourceHeight = canvas.height*img.naturalHeight/height;
+          ctx.drawImage(img,0,sourceTop,img.naturalWidth,sourceHeight,0,0,width,canvas.height);
+          const encoded = canvas.toDataURL("image/jpeg",0.82);
+          if (!encoded.startsWith("data:image/jpeg;base64,")) throw new Error("Comix image conversion failed.");
+          tiles.push(encoded);
+        }
+        return tiles;
+      } finally { canvas.width=1;canvas.height=1; }
     } finally { img.src="";URL.revokeObjectURL(objectUrl); }
   } catch (error) {
     if (error && error.name === "AbortError") throw new Error("Comix image request timed out.");
