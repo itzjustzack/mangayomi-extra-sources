@@ -1,14 +1,15 @@
 # Zack's Personal Mangayomi Extensions
 
-One repository for all five personal extensions.
+One repository for all six personal extensions.
 
 | Source | Type | Version | Preserved source ID |
 |---|---|---|---|
-| Asura Scans | Manga | 0.0.15 | 2847619031 |
+| Asura Scans | Manga | 0.0.17 | 2847619031 |
 | Atsumaru Personal | Manga | 0.0.4 | 3971268045 |
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
+| Comix Personal | Manga | 0.0.1 | 3689042176 |
 
 ## One catalogue link
 
@@ -53,3 +54,15 @@ Episode dates now use the source airDate when supplied and explicitly return an 
 Existing episode rows may retain dates already cached by Mangayomi; the inspected client updater preserves existing dateUpload values when refreshing rows. This extension release cannot by itself guarantee removal of those old cached dates. Do not delete series or reading progress to clear dates.
 
 Validation passed for distinct live Popular/Latest lists, popular pagination, ISO/seconds/milliseconds conversion, unknown/invalid dates, and date mapping. Playback implementation is unchanged from the user-confirmed working 0.0.1 version.
+
+## Comix Personal 0.0.1
+
+Refresh Manga Extensions and install **Comix Personal** from this repository. No new repository URL is needed. This is a separate source; existing Comix library entries are not migrated or renamed.
+
+Uses the current rendered Comix browse, title, chapter and reader pages through Mangayomi's built-in WebView bridge. The retired /api/v2 source is not used. Popular, Latest, search, sorting, type and genre filters are included. Scanlator uploads are kept separately. Unknown upload dates stay blank. Incomplete chapter or image loading returns an error instead of a shortened list. Large chapter catalogues may take several minutes; the current time limit is four minutes.
+
+If Comix requests verification, open Webview and complete it yourself. The source does not solve challenges automatically. No Comix account is required for public titles.
+
+Validation on 2026-11-01: live browser browse and title search; empty search; title details; a four-entry chapter list; Midwood pagination (20 entries per page); old and newly uploaded reader chapters (43 and 36 page slots, first three images loaded in each); direct sample image request (HTTP 200, image/webp). JavaScript tests against captured live page fixtures passed for browse extraction, empty results, small complete chapters, refusal of incomplete lists, URL validation, query/filter encoding, reader order and verification errors.
+
+**Limit:** the complete extension has not yet been tested inside Mangayomi on iPhone. Headless WebView behavior, full-chapter lazy image collection, very large chapter lists, and all image hosts remain to be verified there. Treat this first release as experimental. Do not migrate an existing library until reading is confirmed on-device.
