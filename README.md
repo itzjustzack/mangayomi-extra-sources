@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.4 | 3689042176 |
+| Comix Personal | Manga | 0.0.5 | 3689042176 |
 
 ## One catalogue link
 
@@ -86,3 +86,11 @@ The user confirmed 0.0.2 chapter lists load, but God-level Assassin chapters 1 a
 The user confirmed 0.0.3 displays images, but reported slow, choppy reading. The JPEG compatibility path is retained. Images are now resized to at most 900 pixels wide without upscaling, encoded at quality 0.82, and tall strips are divided into consecutive tiles at most 1,600 pixels high. This bounds each decoded tile to 1.44 million pixels (about 5.8 MB of RGBA data), compared with the previous 12-million-pixel ceiling. The tradeoff is modestly reduced image resolution and JPEG quality. Tall-strip splits change reader page counts, so a saved page position may land at a different place within a chapter; no library records are edited.
 
 Four live image samples from God-level Assassin chapters 1 and 2 converted and decoded successfully in browser tests, using about 25% less encoded data in total than 0.0.3. Tests of tall and irregular image sizes verified continuous crop coverage, tile dimensions, original order and no upscaling. Existing captured-page browse and chapter tests passed. These checks measure image sizes and correctness, not iPhone frame rate. The full chapter is still collected before opening, so this release does not eliminate the initial chapter wait. On-device smoothness remains to be confirmed.
+
+## Comix Personal 0.0.5: request lifecycle and reader cleanup
+
+The user reported smoother but still jittery reading, slow opening and intermittent browsing stalls on 0.0.4. This release serializes WebView work per extension instance and shares identical in-flight requests. Successful browse responses are cached for 30 seconds and detail pages for five minutes, with at most 96 entries; returned values are copied so callers cannot corrupt cached pagination. Reader payloads are not cached. Empty, malformed or timed-out non-reader loads get one fresh-WebView retry. Verification errors are not retried automatically. Browse polling now stops after 20 seconds, with a 30-second bridge limit per attempt.
+
+Injected scripts now keep lexical declarations inside an invocation scope, so repeated onLoadStop events cannot fail with global const redeclaration. Completed browse/detail responses can be delivered again safely. Reader conversion now removes original image src/srcset references after each successful conversion, allowing the hidden WebView to release the site's decoded copies. Actual memory reclamation depends on WebView implementation; this does not measure an iPhone memory reduction.
+
+Tests passed for serialization, deduplication, cache expiry and isolation, timeout recovery, queue recovery after errors, verification handling and repeated script execution. A real browser fixture converted two public chapter samples into three valid JPEG tiles and confirmed no original img[src] references remained. Captured-page and crop-coverage tests still pass. This does not prove that the intermittent phone stall or frame-rate issue is eliminated. Full-chapter preparation, large payload transfer and native data-URI handling remain limitations; first chapter opening can still be slow. Image dimensions/quality and tile boundaries are unchanged from 0.0.4.

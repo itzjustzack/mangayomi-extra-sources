@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.4",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.4.js",
+  "version": "0.0.5",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.5.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,18 +21,48 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.4 - smaller reader images and split tall strips for smoother scrolling."
+  "notes": "Personal Comix 0.0.5 - queued WebViews, browsing recovery/cache, reader memory cleanup."
 }];
 
 class DefaultExtension extends MProvider {
   get supportsLatest() { return true; }
   getHeaders() { return { Referer: this.source.baseUrl + "/" }; }
   async runPage(url, mode, requestedPage = 1) {
+    const key = mode + ":" + requestedPage + ":" + url;
+    this._pageCache = this._pageCache || new Map();
+    this._pendingPages = this._pendingPages || new Map();
+    const cached = this._pageCache.get(key);
+    if (cached && cached.expires > Date.now()) return JSON.parse(cached.json);
+    if (cached) this._pageCache.delete(key);
+    if (this._pendingPages.has(key)) return JSON.parse(await this._pendingPages.get(key));
+    const task = (this._webviewQueue || Promise.resolve()).catch(()=>{}).then(async()=>{
+      let result;
+      for (let attempt=0;attempt<2;attempt++) {
+        try { result = await this.loadPage(url,mode,requestedPage);break; }
+        catch (error) {
+          if (attempt || mode === "reader" || !/did not finish|unreadable page data|timed out/i.test(String(error.message))) throw error;
+        }
+      }
+      const json = JSON.stringify(result);
+      if (mode !== "reader") {
+        this._pageCache.set(key,{json,expires:Date.now()+(mode === "browse" ? 30000 : 300000)});
+        while (this._pageCache.size > 96) this._pageCache.delete(this._pageCache.keys().next().value);
+      }
+      return json;
+    });
+    // Queue only completion, so the queue does not retain the chapter payload.
+    this._webviewQueue = task.then(()=>{},()=>{});
+    this._pendingPages.set(key,task);
+    try { return JSON.parse(await task); }
+    finally { this._pendingPages.delete(key); }
+  }
+  async loadPage(url, mode, requestedPage = 1) {
     if (typeof evaluateJavascriptViaWebview !== "function")
       throw new Error("This source needs Mangayomi's WebView support. Update Mangayomi first.");
-    const script = "const comixImagePages = " + comixImagePages.toString() + ";" +
-      "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");";
-    let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : 65);
+    // onLoadStop can run more than once; lexical bindings must be invocation-local.
+    const script = "(()=>{const comixImagePages = " + comixImagePages.toString() + ";return " +
+      "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");})();";
+    let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : mode === "browse" ? 30 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
     let result;
     try { result = JSON.parse(raw); if (typeof result === "string") result = JSON.parse(result); }
@@ -103,14 +133,20 @@ class DefaultExtension extends MProvider {
 
 // Runs inside the app's own headless WebView, after the website loads.
 async function comixPageTask(mode, requestedPage = 1) {
+  if (window.__zackComixResult) return window.flutter_inappwebview.callHandler("setResponse",window.__zackComixResult);
   if (window.__zackComixRunning) return;
   window.__zackComixRunning = true;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const started = Date.now();
-  const limit = mode === "reader" ? 220000 : 55000;
+  const limit = mode === "reader" ? 220000 : mode === "browse" ? 20000 : 55000;
   let stage = mode === "detail" ? "title metadata" : mode;
   const text = el => (el && el.textContent || "").replace(/\s+/g, " ").trim();
-  const send = value => window.flutter_inappwebview.callHandler("setResponse", JSON.stringify(value));
+  const send = value => {
+    const json = JSON.stringify(value);
+    // Do not retain a second full encoded chapter on the page's global object.
+    if (mode !== "reader") window.__zackComixResult = json;
+    return window.flutter_inappwebview.callHandler("setResponse", json);
+  };
   const deadline = () => {
     if (Date.now() - started >= limit) throw new Error("Comix timed out loading " + stage + ". Open Webview and retry.");
   };
@@ -240,6 +276,11 @@ async function comixPageTask(mode, requestedPage = 1) {
         stage = "reader image " + index + " of " + total;
         const imageData = await comixImagePages(imageUrls.get(index));
         pages.set(index,imageData.map(url=>({url,headers:{}})));
+        // The native reader owns the converted copies now. Stop keeping the
+        // site's decoded full-resolution images alive in this hidden WebView.
+        for (const img of slot.querySelectorAll("img")) {
+          img.removeAttribute("srcset");img.removeAttribute("src");
+        }
       }
       collect();
       if (pages.size !== total) throw new Error("Comix returned an incomplete reader.");
