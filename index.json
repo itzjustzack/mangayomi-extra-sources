@@ -112,27 +112,5 @@
     "dateFormatLocale": "",
     "additionalParams": "",
     "sourceCodeLanguage": 1
-  },
-  {
-    "name": "Comix Personal",
-    "id": 3689042176,
-    "lang": "en",
-    "baseUrl": "https://comix.to",
-    "apiUrl": "",
-    "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=https://comix.to",
-    "typeSource": "single",
-    "itemType": 0,
-    "isManga": true,
-    "version": "0.0.9",
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.9.js",
-    "isNsfw": false,
-    "hasCloudflare": true,
-    "dateFormat": "",
-    "dateFormatLocale": "",
-    "isFullData": false,
-    "appMinVerReq": "0.5.0",
-    "additionalParams": "",
-    "sourceCodeLanguage": 1,
-    "notes": "Personal Comix 0.0.9 - confirmed reader image links and host-switch tracking; faster chapter lists retained."
   }
 ]
