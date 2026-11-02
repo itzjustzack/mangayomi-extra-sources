@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.8",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.8.js",
+  "version": "0.0.9",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.9.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,7 +21,7 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.8 - incremental chapter refresh and longer browser reuse; direct reader retained."
+  "notes": "Personal Comix 0.0.9 - confirmed reader image links and host-switch tracking; faster chapter lists retained."
 }];
 
 class DefaultExtension extends MProvider {
@@ -396,7 +396,9 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
       const collect = () => {
         for (const slot of document.querySelectorAll(".rpage-page[data-page]")) {
           const img = slot.querySelector("img[src]");
-          if (img && (mode === "readerDirect" || (img.complete && img.naturalWidth > 0)) && /^https:\/\//i.test(img.src))
+          // A URL can exist before its host fails. Let the site's reader retry
+          // and switch hosts; retain only addresses that actually decoded.
+          if (img && img.complete && img.naturalWidth > 0 && /^https:\/\//i.test(img.src))
             imageUrls.set(Number(slot.getAttribute("data-page")), img.src);
         }
       };
@@ -404,8 +406,8 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
         check(); collect();
         const index = Number(slot.getAttribute("data-page"));
         slot.scrollIntoView({block:"center"});
-        for (let attempt=0;attempt<120 && !imageUrls.has(index);attempt++) { check();collect();if (!imageUrls.has(index)) await sleep(100); }
-        if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
+        for (let attempt=0;attempt<200 && !imageUrls.has(index);attempt++) { check();collect();if (!imageUrls.has(index)) await sleep(100); }
+        if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load in the website reader. Open the chapter in Webview and retry.");
         stage = "reader image " + index + " of " + total;
         if (mode === "readerDirect") {
           pages.set(index,[{url:imageUrls.get(index),headers:{}}]);
@@ -423,6 +425,11 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
       }
       for (const task of pending) await finish(task);
       collect();
+      if (mode === "readerDirect") {
+        // A later host switch must replace the address captured earlier in
+        // the walk, rather than leave an obsolete URL in the returned list.
+        for (const [index,url] of imageUrls) pages.set(index,[{url,headers:{}}]);
+      }
       if (pages.size !== total) throw new Error("Comix returned an incomplete reader.");
       return send({pages:[...pages.entries()].sort((a,b)=>a[0]-b[0]).flatMap(p=>p[1])});
     }

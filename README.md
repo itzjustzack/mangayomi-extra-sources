@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.8 | 3689042176 |
+| Comix Personal | Manga | 0.0.9 | 3689042176 |
 
 ## One catalogue link
 
@@ -126,3 +126,11 @@ Limit: an older edit or a deletion replaced by an older addition with unchanged 
 Full collection now reuses each WebView for up to ten chapter-list pages within the existing bounded time budget, rather than up to three. A slow or stalled navigation returns its verified progress and resumes in another WebView. Navigation checks reacquire the chapter section each poll because React can replace the DOM element; waiting on the old detached element could waste eight seconds before fallback. Total count and duplicate checks remain enforced. This does not reduce Comix's number of 20-entry pages, but can reduce browser startups.
 
 Checks passed for unchanged-list refresh, exact new-upload merging, fallback for older additions/deletions, six-hour expiry, full-collection preference and cache preservation after network errors. A captured-page fixture with synthetic continuation walked six pages despite replacing the chapter section each time. A simulated 1,370-entry catalogue needed seven ideal ten-page WebView batches versus the previous 23 three-page batches; this is not a live timing or guaranteed on-device batch count. All previous reader, request lifecycle, browse and image tests passed, and a source comparison verified the working reader functions are unchanged. Live full-catalogue speed and iPhone timings remain unverified.
+
+## Comix Personal 0.0.9: confirm reader links before returning them
+
+The user reported random missing panels across manga, with retries unable to load those panels. The 0.0.8 reader path was unchanged from 0.0.7, but investigation identified a race in that direct path: it accepted an img src before a successful image load, then stored that initial address separately from the latest captured URL. A site-side host switch could therefore leave a failed or obsolete URL in the returned page list. This was reproduced in a controlled fixture; the exact failing phone URLs were not available, so it is not a conclusive diagnosis of every missing panel.
+
+Direct mode now accepts only images with complete=true and naturalWidth>0. It waits up to 20 seconds per slot within the existing overall reader deadline, allowing the website to retry or switch hosts. A slot that never loads stops with an explicit chapter-loading error rather than handing out an unconfirmed address. A final pass returns the latest successfully loaded address for every panel, including host switches that happen later in the walk. Direct original images and empty image headers are retained; this does not restore the JPEG-conversion startup cost, but waiting for successful site images can add initial loading time. Native image-host failures after the WebView finishes are still possible and cannot be handled by an extension image callback that Mangayomi does not expose.
+
+Tests reproduce the dead-link capture in 0.0.8 and verify the patch waits for a working replacement, updates earlier URLs after later host changes, preserves order and refuses a never-loaded panel. A browser test loaded three real original WebPs and returned a 352-character confirmed URL list. All previous chapter-list, request lifecycle, direct/compatibility and crop tests passed. Source comparisons verified that incremental chapter refresh, catalogue caching, batching, image headers and reader mode selection are unchanged from 0.0.8. The user's iPhone still needs to confirm whether this addresses the reported panels.
