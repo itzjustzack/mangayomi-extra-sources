@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.6 | 3689042176 |
+| Comix Personal | Manga | 0.0.7 | 3689042176 |
 
 ## One catalogue link
 
@@ -102,3 +102,15 @@ The user confirmed 0.0.5 is much better, but both chapter lists and reader start
 Reader image downloading/conversion now runs as a bounded two-image pipeline instead of serially. Converted tiles stay in source order even when the later image finishes first; original image references are removed after conversion, as in 0.0.5. Image resolution, JPEG quality and tile boundaries are unchanged. Reader payloads remain uncached to avoid retaining large chapter strings. The full chapter still has to be prepared before returning its page list.
 
 Tests passed for three-page fixture navigation, stalled-navigation fallback, unique entries and full simulated 1,370-entry catalogue collection in 23 WebView calls versus 69 previously. Reader tests verify two overlapping conversions, out-of-order completion with correct final order, and original-image cleanup. A browser test decoded three valid JPEG tiles from two real public chapter samples. Existing crop, request lifecycle, browse and chapter tests passed. Live Comix displayed a security verification prompt during this run, so complete live catalogue batching and iPhone timing/frame rate remain unverified; no challenge was automated. Fewer startups and overlapping transfers do not guarantee a specific speedup on the phone.
+
+## Comix Personal 0.0.7: direct images and persistent complete lists
+
+Investigation reproduced an image request failure tied to the previous source-wide Referer header. The same public image on pq4.gentlelivingnotes.site returned HTTP 403 with Referer: https://comix.to/ and HTTP 200 with a valid WebP without it. Three additional hosts were tested using a Dart-style User-Agent and the reader's image Accept header: pureandsimpleshop.site and simplelivingshop.site also rejected Referer; kkplayer.wtf accepted both. All four hosts returned valid WebP without Referer. This also matches the community Comix implementation's explicit removal of image Referer, reviewed as a primary reference; no upstream solver or capture implementation was copied.
+
+Source-wide headers are now empty, so Mangayomi's native reader does not inherit the rejected Referer. The new default Direct reader captures ordered HTTPS image URLs as soon as the website supplies them, without waiting for image decode, downloading image blobs, JPEG conversion, resizing, tiling or a full encoded-image payload. The app can download/cache those original images itself. Collecting the complete URL list still requires the Comix reader WebView and lazy scrolling, so startup is not necessarily as fast as Asura. Individual image hosts or image formats may still behave differently on-device.
+
+Source preferences include Reader mode: Direct (faster) and Compatibility (slower). Compatibility retains the previously working JPEG pipeline and its tile sizes. If direct images fail on the phone, choose Compatibility and reopen the chapter. No automatic native-image fallback is possible through the extension's current page-list interface. Direct mode returns original page counts, so saved positions based on compatibility tiles can land at a different place within the same chapter; no library records are modified.
+
+Complete title/chapter results are cached in extension-local preferences for five minutes, across extension instances. Only fully collected and count-validated catalogues are written. The cache holds at most eight titles and 1.5 million serialized characters, excludes expired entries, and ignores storage failures. It contains source metadata only. Chapter list cache can be disabled in source preferences for a fresh check each time. Updates can otherwise remain unseen until that five-minute cache expires. First-time catalogue collection retains 0.0.6's paged/batched behavior and can still be slow.
+
+Tests passed for direct links returned before image completion, correct ordering and empty image headers, absence of conversion calls, mode selection, persistent complete-list reuse, expiry, copy isolation and cache disable. A real browser test loaded three original WebPs from hosts that reject Referer and returned a 352-character URL payload; its prepared three-slot fixture collected links in 8 ms, which is not a whole-chapter or iPhone timing claim. Existing compatibility, crop, request lifecycle and chapter-batch tests passed. Native iPhone playback and first-time full live catalogue speed remain to be confirmed.

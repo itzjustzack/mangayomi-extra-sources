@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.6",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.6.js",
+  "version": "0.0.7",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.7.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,12 +21,32 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.6 - batched chapter lists and two-image reader pipeline."
+  "notes": "Personal Comix 0.0.7 - direct images without Referer; complete chapter lists cached for five minutes."
 }];
 
 class DefaultExtension extends MProvider {
   get supportsLatest() { return true; }
-  getHeaders() { return { Referer: this.source.baseUrl + "/" }; }
+  // Image hosts reject Referer. These headers are also used by native readers.
+  getHeaders() { return {}; }
+  preference(key,fallback) {
+    try { return new SharedPreferences().get(key) || fallback; } catch (_) { return fallback; }
+  }
+  async cachedCatalogue(base,value) {
+    if (this.preference("comix_catalogue_cache","300") === "0" || typeof SharedPreferences !== "function") return null;
+    try {
+      const prefs = new SharedPreferences();
+      const raw = await prefs.getString("comix_complete_catalogues_v1","[]");
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved)) return null;
+      let entries = saved.filter(item=>item && item.expires>Date.now() && item.data && Array.isArray(item.data.chapters));
+      if (!value) { const found=entries.find(item=>item.base===base);return found ? found.data : null; }
+      entries = [{base,expires:Date.now()+300000,data:value},...entries.filter(item=>item.base!==base)].slice(0,8);
+      let json=JSON.stringify(entries);
+      while (json.length>1500000 && entries.length>1) { entries.pop();json=JSON.stringify(entries); }
+      if (json.length<=1500000) await prefs.setString("comix_complete_catalogues_v1",json);
+    } catch (_) { /* Cache failure must not prevent reading. */ }
+    return null;
+  }
   async runPage(url, mode, requestedPage = 1) {
     const key = mode + ":" + requestedPage + ":" + url;
     this._pageCache = this._pageCache || new Map();
@@ -40,11 +60,11 @@ class DefaultExtension extends MProvider {
       for (let attempt=0;attempt<2;attempt++) {
         try { result = await this.loadPage(url,mode,requestedPage);break; }
         catch (error) {
-          if (attempt || mode === "reader" || !/did not finish|unreadable page data|timed out/i.test(String(error.message))) throw error;
+          if (attempt || mode.startsWith("reader") || !/did not finish|unreadable page data|timed out/i.test(String(error.message))) throw error;
         }
       }
       const json = JSON.stringify(result);
-      if (mode !== "reader") {
+      if (!mode.startsWith("reader")) {
         this._pageCache.set(key,{json,expires:Date.now()+(mode === "browse" ? 30000 : 300000)});
         while (this._pageCache.size > 96) this._pageCache.delete(this._pageCache.keys().next().value);
       }
@@ -64,7 +84,7 @@ class DefaultExtension extends MProvider {
       comixPageTask.toString() + ";return " + (mode === "detailBatch" ?
       "(" + comixDetailBatchTask.toString() + ")(" + requestedPage + ");})();" :
       "comixPageTask(" + JSON.stringify(mode) + "," + requestedPage + ");})();");
-    let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : mode === "browse" ? 30 : 65);
+    let raw = await evaluateJavascriptViaWebview(url, {}, [script], mode.startsWith("reader") ? 240 : mode === "browse" ? 30 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
     let result;
     try { result = JSON.parse(raw); if (typeof result === "string") result = JSON.parse(result); }
@@ -101,6 +121,8 @@ class DefaultExtension extends MProvider {
   }
   async getDetail(url) {
     const base = this.normalizeUrl(url);
+    const cached = await this.cachedCatalogue(base);
+    if (cached) return cached;
     const first = await this.runPage(base + "?page=1", "detailBatch", 1);
     const pagination = first.chapterPagination;
     if (!pagination || pagination.page !== 1) throw new Error("Comix did not load chapter page 1.");
@@ -126,9 +148,13 @@ class DefaultExtension extends MProvider {
       return number(b)-number(a);
     });
     delete first.chapterPagination;
+    await this.cachedCatalogue(base,first);
     return first;
   }
-  async getPageList(url) { const result = await this.runPage(this.normalizeUrl(url), "reader"); return result.pages; }
+  async getPageList(url) {
+    const mode = this.preference("comix_reader_mode","direct") === "compatibility" ? "reader" : "readerDirect";
+    const result = await this.runPage(this.normalizeUrl(url),mode);return result.pages;
+  }
   getFilterList() {
     const select = (name, options) => ({type_name:"SelectFilter",name,state:0,values:options.map(p=>({type_name:"SelectOption",name:p[0],value:p[1]}))});
     return [
@@ -137,7 +163,12 @@ class DefaultExtension extends MProvider {
       select("Genre", [["Any",""],["Action","6"],["Adventure","7"],["Comedy","9"],["Drama","11"],["Fantasy","12"],["Historical","14"],["Horror","15"],["Isekai","16"],["Mystery","20"],["Romance","23"],["Sci-Fi","24"],["Slice of Life","25"],["Sports","26"],["Thriller","28"],["Wuxia","30"]])
     ];
   }
-  getSourcePreferences() { return []; }
+  getSourcePreferences() {
+    return [
+      {key:"comix_reader_mode",listPreference:{title:"Reader mode",summary:"Direct loads original images. Compatibility prepares JPEG copies before opening.",valueIndex:0,entries:["Direct (faster)","Compatibility (slower)"],entryValues:["direct","compatibility"]}},
+      {key:"comix_catalogue_cache",listPreference:{title:"Chapter list cache",summary:"Reuse complete lists for five minutes. Disable to check every opening for updates.",valueIndex:0,entries:["Five minutes","Disabled"],entryValues:["300","0"]}}
+    ];
+  }
 }
 
 // Reuse a loaded title page for up to three adjacent chapter pages. If the
@@ -204,14 +235,14 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
   if (!reply) window.__zackComixRunning = true;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const started = Date.now();
-  const limit = mode === "reader" ? 220000 : mode === "browse" ? 20000 : 55000;
+  const limit = mode.startsWith("reader") ? 220000 : mode === "browse" ? 20000 : 55000;
   let stage = mode === "detail" ? "title metadata" : mode;
   const text = el => (el && el.textContent || "").replace(/\s+/g, " ").trim();
   const send = value => {
     if (reply) return reply(value);
     const json = JSON.stringify(value);
     // Do not retain a second full encoded chapter on the page's global object.
-    if (mode !== "reader") window.__zackComixResult = json;
+    if (!mode.startsWith("reader")) window.__zackComixResult = json;
     return window.flutter_inappwebview.callHandler("setResponse", json);
   };
   const deadline = () => {
@@ -321,7 +352,7 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
         chapterPagination:{page:requestedPage,total,lastPage}
       });
     }
-    if (mode === "reader") {
+    if (mode === "reader" || mode === "readerDirect") {
       let slots = [];
       while (!(slots = [...document.querySelectorAll(".rpage-page[data-page]")]).length) { check(); await sleep(300); }
       const total = slots.length;
@@ -336,7 +367,7 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
       const collect = () => {
         for (const slot of document.querySelectorAll(".rpage-page[data-page]")) {
           const img = slot.querySelector("img[src]");
-          if (img && img.complete && img.naturalWidth > 0 && /^https?:\/\//i.test(img.src))
+          if (img && (mode === "readerDirect" || (img.complete && img.naturalWidth > 0)) && /^https:\/\//i.test(img.src))
             imageUrls.set(Number(slot.getAttribute("data-page")), img.src);
         }
       };
@@ -344,9 +375,13 @@ async function comixPageTask(mode, requestedPage = 1, reply) {
         check(); collect();
         const index = Number(slot.getAttribute("data-page"));
         slot.scrollIntoView({block:"center"});
-        for (let attempt=0;attempt<60 && !imageUrls.has(index);attempt++) { check();collect();await sleep(200); }
+        for (let attempt=0;attempt<120 && !imageUrls.has(index);attempt++) { check();collect();if (!imageUrls.has(index)) await sleep(100); }
         if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
         stage = "reader image " + index + " of " + total;
+        if (mode === "readerDirect") {
+          pages.set(index,[{url:imageUrls.get(index),headers:{}}]);
+          continue;
+        }
         // At most two conversions run together. Each rejection is captured
         // immediately so a slow earlier page cannot leave it unhandled.
         pending.push(comixImagePages(imageUrls.get(index)).then(images=>{
