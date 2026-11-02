@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.2 | 3689042176 |
+| Comix Personal | Manga | 0.0.3 | 3689042176 |
 
 ## One catalogue link
 
@@ -74,3 +74,9 @@ Replaces the single-session, scripted-click chapter walk with direct page-by-pag
 Live inspection found Eleceed has 1,370 scanlator chapter entries (69 pages) and God-level Assassin, I'm the Shadow has 315 (16 pages). A first full load can take several minutes; keep Mangayomi open. Original source 0.0.1 had an overall four-minute limit, which was too short for large lists. Reader implementation is unchanged.
 
 Tests passed against captured live pages for both reported titles and direct chapter page 2. A simulated full 69-page run collected all 1,370 entries, while repeated/wrong pages were rejected. Native iPhone loading still needs confirmation; these tests do not claim a live 69-page on-device run.
+
+## Comix Personal 0.0.3: reader image compatibility
+
+Reader pages now download images in the reader WebView and convert them to JPEG data URIs before passing them to Mangayomi. This avoids a second image-host request by the native reader and normalizes the image format. Very large individual images are proportionally reduced to at most 12 million pixels. Source identity and chapter-list handling are preserved.
+
+The user confirmed 0.0.2 chapter lists load, but God-level Assassin chapters 1 and 2 showed image errors after loading. Sample original images returned valid WebP files outside the app, so the precise native failure has not been reproduced. Browser tests verify actual JPEG conversion and decoding for samples from both reported chapters; captured-page tests verify reader ordering and the existing browse/chapter behavior. The iPhone reader and full-chapter bridge payload still need on-device confirmation. This release is a compatibility workaround, not a claim that the phone failure is conclusively fixed.

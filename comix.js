@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.2",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.2.js",
+  "version": "0.0.3",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.3.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,7 +21,7 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.2 - direct chapter pages; large titles can take several minutes."
+  "notes": "Personal Comix 0.0.3 - browser-decoded reader images; large titles can take several minutes."
 }];
 
 class DefaultExtension extends MProvider {
@@ -30,7 +30,8 @@ class DefaultExtension extends MProvider {
   async runPage(url, mode, requestedPage = 1) {
     if (typeof evaluateJavascriptViaWebview !== "function")
       throw new Error("This source needs Mangayomi's WebView support. Update Mangayomi first.");
-    const script = "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");";
+    const script = "const comixImageDataUrl = " + comixImageDataUrl.toString() + ";" +
+      "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");";
     let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
     let result;
@@ -222,20 +223,23 @@ async function comixPageTask(mode, requestedPage = 1) {
       while (!(slots = [...document.querySelectorAll(".rpage-page[data-page]")]).length) { check(); await sleep(300); }
       const total = slots.length;
       const pages = new Map();
+      const imageUrls = new Map();
       const collect = () => {
         for (const slot of document.querySelectorAll(".rpage-page[data-page]")) {
           const img = slot.querySelector("img[src]");
           if (img && img.complete && img.naturalWidth > 0 && /^https?:\/\//i.test(img.src))
-            pages.set(Number(slot.getAttribute("data-page")), {url:img.src,headers:{}});
+            imageUrls.set(Number(slot.getAttribute("data-page")), img.src);
         }
       };
       for (const slot of slots) {
         check(); collect();
         const index = Number(slot.getAttribute("data-page"));
-        if (pages.has(index)) continue;
         slot.scrollIntoView({block:"center"});
-        for (let attempt=0;attempt<60 && !pages.has(index);attempt++) { check();collect();await sleep(200); }
-        if (!pages.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
+        for (let attempt=0;attempt<60 && !imageUrls.has(index);attempt++) { check();collect();await sleep(200); }
+        if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
+        stage = "reader image " + index + " of " + total;
+        const imageData = await comixImageDataUrl(imageUrls.get(index));
+        pages.set(index,{url:imageData,headers:{}});
       }
       collect();
       if (pages.size !== total) throw new Error("Comix returned an incomplete reader.");
@@ -244,3 +248,48 @@ async function comixPageTask(mode, requestedPage = 1) {
     throw new Error("Unsupported Comix operation.");
   } catch (error) { return send({error:String(error.message || error)}); }
 }
+
+// Runs in the same WebView as the reader. JPEG data URIs avoid a second native
+// image download and normalize image formats for the app's image decoder.
+async function comixImageDataUrl(url) {
+  if (!/^https:\/\//i.test(url)) throw new Error("Comix returned an invalid image URL.");
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(url, {
+      credentials:"omit",referrerPolicy:"no-referrer",cache:"force-cache",signal:controller.signal
+    });
+    if (!response.ok) throw new Error("Comix image returned HTTP " + response.status);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("Comix image was empty.");
+    const objectUrl = URL.createObjectURL(blob);
+    const img = new Image();
+    try {
+      await new Promise((resolve,reject) => {
+        const timeout = setTimeout(() => reject(new Error("Comix image decoding timed out.")),15000);
+        img.onload = () => { clearTimeout(timeout);resolve(); };
+        img.onerror = () => { clearTimeout(timeout);reject(new Error("Comix delivered an unreadable image.")); };
+        img.src = objectUrl;
+      });
+      if (!img.naturalWidth || !img.naturalHeight) throw new Error("Comix image has no dimensions.");
+      const scale = Math.min(1,Math.sqrt(12000000/(img.naturalWidth*img.naturalHeight)));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1,Math.floor(img.naturalWidth*scale));
+      canvas.height = Math.max(1,Math.floor(img.naturalHeight*scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Image conversion is unavailable in this WebView.");
+      ctx.fillStyle = "#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      const encoded = canvas.toDataURL("image/jpeg",0.90);
+      canvas.width=1;canvas.height=1;
+      if (!encoded.startsWith("data:image/jpeg;base64,")) throw new Error("Comix image conversion failed.");
+      return encoded;
+    } finally { img.src="";URL.revokeObjectURL(objectUrl); }
+  } catch (error) {
+    if (error && error.name === "AbortError") throw new Error("Comix image request timed out.");
+    throw error;
+  } finally { clearTimeout(abort); }
+}
+
+
