@@ -11,8 +11,8 @@ const mangayomiSources = [{
   "typeSource": "single",
   "itemType": 0,
   "isManga": true,
-  "version": "0.0.5",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.5.js",
+  "version": "0.0.6",
+  "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/comix-v0.0.6.js",
   "isNsfw": false,
   "hasCloudflare": true,
   "dateFormat": "",
@@ -21,7 +21,7 @@ const mangayomiSources = [{
   "appMinVerReq": "0.5.0",
   "additionalParams": "",
   "sourceCodeLanguage": 1,
-  "notes": "Personal Comix 0.0.5 - queued WebViews, browsing recovery/cache, reader memory cleanup."
+  "notes": "Personal Comix 0.0.6 - batched chapter lists and two-image reader pipeline."
 }];
 
 class DefaultExtension extends MProvider {
@@ -60,8 +60,10 @@ class DefaultExtension extends MProvider {
     if (typeof evaluateJavascriptViaWebview !== "function")
       throw new Error("This source needs Mangayomi's WebView support. Update Mangayomi first.");
     // onLoadStop can run more than once; lexical bindings must be invocation-local.
-    const script = "(()=>{const comixImagePages = " + comixImagePages.toString() + ";return " +
-      "(" + comixPageTask.toString() + ")(" + JSON.stringify(mode) + "," + requestedPage + ");})();";
+    const script = "(()=>{const comixImagePages = " + comixImagePages.toString() + ";const comixPageTask = " +
+      comixPageTask.toString() + ";return " + (mode === "detailBatch" ?
+      "(" + comixDetailBatchTask.toString() + ")(" + requestedPage + ");})();" :
+      "comixPageTask(" + JSON.stringify(mode) + "," + requestedPage + ");})();");
     let raw = await evaluateJavascriptViaWebview(url, this.getHeaders(), [script], mode === "reader" ? 240 : mode === "browse" ? 30 : 65);
     if (!raw) throw new Error("Comix did not finish loading. Open the source in Webview, complete any verification yourself, then retry.");
     let result;
@@ -99,17 +101,24 @@ class DefaultExtension extends MProvider {
   }
   async getDetail(url) {
     const base = this.normalizeUrl(url);
-    const first = await this.runPage(base + "?page=1", "detail", 1);
+    const first = await this.runPage(base + "?page=1", "detailBatch", 1);
     const pagination = first.chapterPagination;
     if (!pagination || pagination.page !== 1) throw new Error("Comix did not load chapter page 1.");
     const chapters = new Map(first.chapters.map(c => [c.url, c]));
-    for (let page = 2; page <= pagination.lastPage; page++) {
-      const next = await this.runPage(base + "?page=" + page, "detail", page);
+    let previousEnd = pagination.toPage || 1;
+    if (previousEnd < 1 || previousEnd > pagination.lastPage) throw new Error("Invalid Comix chapter batch.");
+    for (let page = previousEnd + 1; page <= pagination.lastPage;) {
+      const next = await this.runPage(base + "?page=" + page, "detailBatch", page);
       if (!next.chapterPagination || next.chapterPagination.page !== page)
         throw new Error("Comix did not load chapter page " + page + ". Open Webview and retry.");
+      if (next.chapterPagination.total !== pagination.total || next.chapterPagination.lastPage !== pagination.lastPage)
+        throw new Error("The Comix chapter list changed. Retry the title.");
       const before = chapters.size;
       for (const chapter of next.chapters) chapters.set(chapter.url, chapter);
       if (chapters.size === before) throw new Error("Comix repeated a chapter page; retry loading the title.");
+      const end = next.chapterPagination.toPage || page;
+      if (end < page || end > pagination.lastPage) throw new Error("Invalid Comix chapter batch.");
+      page = end + 1;
     }
     if (chapters.size !== pagination.total) throw new Error("The Comix chapter list changed or is incomplete. Retry the title.");
     first.chapters = [...chapters.values()].sort((a,b) => {
@@ -131,17 +140,75 @@ class DefaultExtension extends MProvider {
   getSourcePreferences() { return []; }
 }
 
-// Runs inside the app's own headless WebView, after the website loads.
-async function comixPageTask(mode, requestedPage = 1) {
+// Reuse a loaded title page for up to three adjacent chapter pages. If the
+// site's navigation does not settle quickly, return only the verified batch;
+// getDetail continues from the next page in a fresh WebView.
+async function comixDetailBatchTask(requestedPage) {
   if (window.__zackComixResult) return window.flutter_inappwebview.callHandler("setResponse",window.__zackComixResult);
   if (window.__zackComixRunning) return;
   window.__zackComixRunning = true;
+  const send = value => {
+    window.__zackComixResult = JSON.stringify(value);
+    return window.flutter_inappwebview.callHandler("setResponse",window.__zackComixResult);
+  };
+  const sleep = ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const started = Date.now();
+  try {
+    const first = await comixPageTask("detail",requestedPage,value=>value);
+    if (first.error) return send(first);
+    const pagination = first.chapterPagination;
+    const chapters = new Map();
+    const add = (result,page) => {
+      if (result.error) throw new Error(result.error);
+      const p = result.chapterPagination;
+      if (!p || p.page !== page || p.total !== pagination.total || p.lastPage !== pagination.lastPage ||
+          result.chapters.length !== Math.min(20,p.total-(page-1)*20))
+        throw new Error("Comix returned an incomplete chapter page.");
+      for (const chapter of result.chapters) {
+        if (chapters.has(chapter.url)) throw new Error("Comix repeated a chapter page.");
+        chapters.set(chapter.url,chapter);
+      }
+    };
+    add(first,requestedPage);
+    let end = requestedPage;
+    while (end < pagination.lastPage && end < requestedPage+2 && Date.now()-started < 40000) {
+      const section = document.querySelector(".mpage__chapters");
+      const next = section && ([...section.querySelectorAll(".npager button")].find(button=>Number(button.textContent.trim())===end+1) ||
+        section.querySelector('button[aria-label="Next page"]'));
+      if (!next || next.disabled) break;
+      const previous = section.querySelector("a.mchap-row__primary");
+      const previousUrl = previous && previous.getAttribute("href");
+      next.click();
+      const navigationStarted = Date.now();
+      let ready = false;
+      while (Date.now()-navigationStarted < 8000 && Date.now()-started < 45000) {
+        const active = section.querySelector('.npager button[aria-current="page"]');
+        const anchor = section.querySelector("a.mchap-row__primary");
+        if (active && Number(active.textContent.trim()) === end+1 && anchor && anchor.getAttribute("href") !== previousUrl) { ready=true;break; }
+        await sleep(150);
+      }
+      if (!ready) break;
+      const result = await comixPageTask("detail",end+1,value=>value);
+      add(result,end+1);end++;
+    }
+    first.chapters = [...chapters.values()];
+    first.chapterPagination = {...pagination,toPage:end};
+    return send(first);
+  } catch (error) { return send({error:String(error.message || error)}); }
+}
+
+// Runs inside the app's own headless WebView, after the website loads.
+async function comixPageTask(mode, requestedPage = 1, reply) {
+  if (!reply && window.__zackComixResult) return window.flutter_inappwebview.callHandler("setResponse",window.__zackComixResult);
+  if (!reply && window.__zackComixRunning) return;
+  if (!reply) window.__zackComixRunning = true;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const started = Date.now();
   const limit = mode === "reader" ? 220000 : mode === "browse" ? 20000 : 55000;
   let stage = mode === "detail" ? "title metadata" : mode;
   const text = el => (el && el.textContent || "").replace(/\s+/g, " ").trim();
   const send = value => {
+    if (reply) return reply(value);
     const json = JSON.stringify(value);
     // Do not retain a second full encoded chapter on the page's global object.
     if (mode !== "reader") window.__zackComixResult = json;
@@ -260,6 +327,12 @@ async function comixPageTask(mode, requestedPage = 1) {
       const total = slots.length;
       const pages = new Map();
       const imageUrls = new Map();
+      const pending = [];
+      const finish = async task => {
+        const result = await task;
+        if (result.error) throw result.error;
+        pages.set(result.index,result.images.map(url=>({url,headers:{}})));
+      };
       const collect = () => {
         for (const slot of document.querySelectorAll(".rpage-page[data-page]")) {
           const img = slot.querySelector("img[src]");
@@ -274,14 +347,17 @@ async function comixPageTask(mode, requestedPage = 1) {
         for (let attempt=0;attempt<60 && !imageUrls.has(index);attempt++) { check();collect();await sleep(200); }
         if (!imageUrls.has(index)) throw new Error("Comix page " + index + " did not load. Retry the chapter in Webview.");
         stage = "reader image " + index + " of " + total;
-        const imageData = await comixImagePages(imageUrls.get(index));
-        pages.set(index,imageData.map(url=>({url,headers:{}})));
-        // The native reader owns the converted copies now. Stop keeping the
-        // site's decoded full-resolution images alive in this hidden WebView.
-        for (const img of slot.querySelectorAll("img")) {
-          img.removeAttribute("srcset");img.removeAttribute("src");
-        }
+        // At most two conversions run together. Each rejection is captured
+        // immediately so a slow earlier page cannot leave it unhandled.
+        pending.push(comixImagePages(imageUrls.get(index)).then(images=>{
+          for (const img of slot.querySelectorAll("img")) {
+            img.removeAttribute("srcset");img.removeAttribute("src");
+          }
+          return {index,images};
+        },error=>({error})));
+        if (pending.length >= 2) await finish(pending.shift());
       }
+      for (const task of pending) await finish(task);
       collect();
       if (pages.size !== total) throw new Error("Comix returned an incomplete reader.");
       return send({pages:[...pages.entries()].sort((a,b)=>a[0]-b[0]).flatMap(p=>p[1])});

@@ -9,7 +9,7 @@ One repository for all six personal extensions.
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
 | AnimeParadise Personal | Anime | 0.0.2 | 4182889351 |
-| Comix Personal | Manga | 0.0.5 | 3689042176 |
+| Comix Personal | Manga | 0.0.6 | 3689042176 |
 
 ## One catalogue link
 
@@ -94,3 +94,11 @@ The user reported smoother but still jittery reading, slow opening and intermitt
 Injected scripts now keep lexical declarations inside an invocation scope, so repeated onLoadStop events cannot fail with global const redeclaration. Completed browse/detail responses can be delivered again safely. Reader conversion now removes original image src/srcset references after each successful conversion, allowing the hidden WebView to release the site's decoded copies. Actual memory reclamation depends on WebView implementation; this does not measure an iPhone memory reduction.
 
 Tests passed for serialization, deduplication, cache expiry and isolation, timeout recovery, queue recovery after errors, verification handling and repeated script execution. A real browser fixture converted two public chapter samples into three valid JPEG tiles and confirmed no original img[src] references remained. Captured-page and crop-coverage tests still pass. This does not prove that the intermittent phone stall or frame-rate issue is eliminated. Full-chapter preparation, large payload transfer and native data-URI handling remain limitations; first chapter opening can still be slow. Image dimensions/quality and tile boundaries are unchanged from 0.0.4.
+
+## Comix Personal 0.0.6: reduce chapter-list and reader startup work
+
+The user confirmed 0.0.5 is much better, but both chapter lists and reader startup remain slow across tested titles. Title requests now reuse each loaded WebView for up to three adjacent chapter-list pages using the site's normal pagination buttons. Each page must match its requested number, total and expected item count; duplicates are rejected. If navigation does not settle within eight seconds, only verified pages are returned to the extension, which continues from the next missing page in a fresh WebView. The final full catalogue must still match the reported total. This reduces browser startups without opening multiple WebViews or discarding scanlator entries.
+
+Reader image downloading/conversion now runs as a bounded two-image pipeline instead of serially. Converted tiles stay in source order even when the later image finishes first; original image references are removed after conversion, as in 0.0.5. Image resolution, JPEG quality and tile boundaries are unchanged. Reader payloads remain uncached to avoid retaining large chapter strings. The full chapter still has to be prepared before returning its page list.
+
+Tests passed for three-page fixture navigation, stalled-navigation fallback, unique entries and full simulated 1,370-entry catalogue collection in 23 WebView calls versus 69 previously. Reader tests verify two overlapping conversions, out-of-order completion with correct final order, and original-image cleanup. A browser test decoded three valid JPEG tiles from two real public chapter samples. Existing crop, request lifecycle, browse and chapter tests passed. Live Comix displayed a security verification prompt during this run, so complete live catalogue batching and iPhone timing/frame rate remain unverified; no challenge was automated. Fewer startups and overlapping transfers do not guarantee a specific speedup on the phone.
