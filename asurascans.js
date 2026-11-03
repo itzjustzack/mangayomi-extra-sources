@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.17",
+    "version": "0.0.18",
     "pkgPath": "",
-    "notes": "Description shows Asura rating first, followed by the full synopsis.",
+    "notes": "Fixes manga covers showing wide social preview cards.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.17",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.18",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -450,12 +450,16 @@ async getDetail(url) {
   : "Title not found",
     
 imageUrl: (() => {
-  const meta = doc.selectFirst('meta[property="og:image"]');
-  let src = meta ? meta.attr("content") : "";
-
-  if (!src) {
-    const img = doc.selectFirst('img[src*="cover"]');
-    src = img ? img.attr("src") : "";
+  // og:image is a wide social card containing text, not the manga cover.
+  let src = "";
+  for (const selector of ['#mobile-cover-img', '#cover-viewer-img', 'img[src*="/covers/"]']) {
+    const img = doc.selectFirst(selector);
+    if (!img) continue;
+    const candidate = img.attr("data-full-src") || img.attr("data-src") || img.attr("src") || "";
+    if (candidate && !/default-cover|\/og\//i.test(candidate)) {
+      src = candidate;
+      break;
+    }
   }
 
   if (src.startsWith("/")) {

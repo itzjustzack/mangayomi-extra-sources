@@ -9,3 +9,4 @@ AnimeParadise Personal derives from Mallyd11/mangayomi-anime-extensions/javascri
 
 2026-10-26, AnimeParadise Personal 0.0.2: corrected site sort enums and explicit episode airDate/unknown date handling.
 
+2026-11-01: Comix Personal 0.0.1, original rendered-page implementation for itzjustzack using Mangayomi's WebView bridge. Current site structure was inspected directly; community Comix implementations were consulted for compatibility research. No automatic CAPTCHA solver is included.
