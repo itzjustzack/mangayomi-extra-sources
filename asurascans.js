@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.22",
+    "version": "0.0.23",
     "pkgPath": "",
-    "notes": "Uses Webview to refresh manga details and load chapters.",
+    "notes": "Pauses Asura requests after a rate limit.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.22",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.23",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -64,6 +64,36 @@ function cleanAsuraText(value) {
   }
   return text.trim();
 }
+
+const asuraRateLimitKey = "asuraRateLimitUntil";
+let asuraRateLimitUntil = 0;
+
+async function checkAsuraCooldown() {
+  const prefs = new SharedPreferences();
+  const until = Number(await prefs.getString(asuraRateLimitKey, "0"));
+  if (asuraRateLimitUntil > Date.now() || until > Date.now()) {
+    throw new Error("Asura is rate limiting requests. Try again later.");
+  }
+}
+
+async function stopForAsuraRateLimit(response) {
+  const retryAfter = response && response.headers && response.headers["retry-after"];
+  const now = Date.now();
+  const retryAt = /^\d+$/.test(retryAfter) ? now + Number(retryAfter) * 1000 : Date.parse(retryAfter);
+  const prefs = new SharedPreferences();
+  const stored = Number(await prefs.getString(asuraRateLimitKey, "0")) || 0;
+  asuraRateLimitUntil = Math.max(asuraRateLimitUntil, stored, now + 15 * 60 * 1000, retryAt || 0);
+  await prefs.setString(asuraRateLimitKey, String(asuraRateLimitUntil));
+  throw new Error("Asura is rate limiting requests. Try again later.");
+}
+
+// Run in Webview and return immediately when Cloudflare serves its 1015 page.
+const asuraRateLimitCheck = `
+  if (/\\berror\\s+1015\\b/i.test(document.body ? document.body.innerText : '') &&
+      /rate limit/i.test(document.body.innerText)) {
+    window.flutter_inappwebview.callHandler('setResponse', 'ASURA_RATE_LIMITED');
+    return;
+  }`;
 
 class DefaultExtension extends MProvider {
     /**
@@ -384,6 +414,7 @@ async search(query, page, filters) {
     
 
 async getDetail(url) {
+  await checkAsuraCooldown();
   const fullUrl = url.startsWith("http")
     ? url
     : "https://asurascans.com" + url;
@@ -391,7 +422,7 @@ async getDetail(url) {
   // Use the same browser path as the chapter reader to avoid a native 403.
   let html = "";
   if (typeof evaluateJavascriptViaWebview === "function") {
-    const script = `(() => {
+    const script = `(() => {${asuraRateLimitCheck}
       if (document.querySelector('h1') && document.querySelector('a[href*="/chapter/"]')) {
         window.flutter_inappwebview.callHandler('setResponse', document.documentElement.outerHTML);
       }
@@ -400,8 +431,10 @@ async getDetail(url) {
       html = await evaluateJavascriptViaWebview(fullUrl, {}, [script], 15);
     } catch (_) {}
   }
+  if (html === "ASURA_RATE_LIMITED") await stopForAsuraRateLimit();
   if (!html) {
     const res = await new Client().get(fullUrl, this.getHeaders(fullUrl));
+    if (res.statusCode === 429) await stopForAsuraRateLimit(res);
     if (res.statusCode !== 200) throw new Error("Asura details returned HTTP " + res.statusCode);
     html = res.body;
   }
@@ -653,6 +686,7 @@ return Number.isFinite(timestamp)
      */
     
 async getPageList(url) {
+  await checkAsuraCooldown();
   const fullUrl = url.startsWith("http")
     ? url
     : "https://asurascans.com" + url;
@@ -666,6 +700,7 @@ async getPageList(url) {
     this.getHeaders(fullUrl)
   );
 
+  if (res.statusCode === 429) await stopForAsuraRateLimit(res);
   if (res.statusCode !== 200) {
     if (res.statusCode === 403 || (res.headers && res.headers["cf-mitigated"] === "challenge")) {
       throw new Error("Asura blocked the reader request. Open Webview to read this chapter.");
@@ -700,7 +735,7 @@ async getChapterPagesViaWebview(url) {
   if (typeof evaluateJavascriptViaWebview !== "function") return [];
 
   // Asura passes the ordered page list to its reader as Astro island props.
-  const script = `(() => {
+  const script = `(() => {${asuraRateLimitCheck}
     for (const island of document.querySelectorAll('astro-island[props]')) {
       const props = JSON.parse(island.getAttribute('props'));
       const pages = props.pages && props.pages[1];
@@ -718,8 +753,14 @@ async getChapterPagesViaWebview(url) {
     }
   })()`;
 
+  let result;
   try {
-    const result = await evaluateJavascriptViaWebview(url, {}, [script], 15);
+    result = await evaluateJavascriptViaWebview(url, {}, [script], 15);
+  } catch (_) {
+    return [];
+  }
+  if (result === "ASURA_RATE_LIMITED") await stopForAsuraRateLimit();
+  try {
     const pages = JSON.parse(result);
     return Array.isArray(pages) && pages.every(src => typeof src === "string" && /^https?:\/\//i.test(src))
       ? pages : [];
