@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.20",
+    "version": "0.0.21",
     "pkgPath": "",
-    "notes": "Tries Webview when Asura blocks the chapter request.",
+    "notes": "Loads chapters through Webview first to avoid unnecessary Cloudflare alerts.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.20",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.21",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -643,21 +643,21 @@ return Number.isFinite(timestamp)
      */
     
 async getPageList(url) {
-  const client = new Client();
-
   const fullUrl = url.startsWith("http")
     ? url
     : "https://asurascans.com" + url;
 
-  const res = await client.get(
+  // Mangayomi displays a challenge banner as soon as a native request is blocked.
+  const browserPages = await this.getChapterPagesViaWebview(fullUrl);
+  if (browserPages.length) return browserPages;
+
+  const res = await new Client().get(
     fullUrl,
     this.getHeaders(fullUrl)
   );
 
   if (res.statusCode !== 200) {
     if (res.statusCode === 403 || (res.headers && res.headers["cf-mitigated"] === "challenge")) {
-      const pages = await this.getChapterPagesViaWebview(fullUrl);
-      if (pages.length) return pages;
       throw new Error("Asura blocked the reader request. Open Webview to read this chapter.");
     }
     throw new Error("Asura chapter returned HTTP " + res.statusCode);

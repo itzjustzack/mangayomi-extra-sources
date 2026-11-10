@@ -4,7 +4,7 @@ One repository for all five personal extensions.
 
 | Source | Type | Version | Preserved source ID |
 |---|---|---|---|
-| Asura Scans | Manga | 0.0.20 | 2847619031 |
+| Asura Scans | Manga | 0.0.21 | 2847619031 |
 | Atsumaru Personal | Manga | 0.0.4 | 3971268045 |
 | Weeb Central Personal | Manga | 0.0.2 | 2363170537 |
 | NovelFire Personal | Novel | 0.0.2 | 3749199444 |
