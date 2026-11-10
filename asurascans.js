@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.19",
+    "version": "0.0.20",
     "pkgPath": "",
-    "notes": "Fixes request headers for Cloudflare verification.",
+    "notes": "Tries Webview when Asura blocks the chapter request.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.19",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.20",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -655,8 +655,10 @@ async getPageList(url) {
   );
 
   if (res.statusCode !== 200) {
-    if (res.headers && res.headers["cf-mitigated"] === "challenge") {
-      throw new Error("Asura requires Cloudflare verification. Tap Resolve challenge, then Retry.");
+    if (res.statusCode === 403 || (res.headers && res.headers["cf-mitigated"] === "challenge")) {
+      const pages = await this.getChapterPagesViaWebview(fullUrl);
+      if (pages.length) return pages;
+      throw new Error("Asura blocked the reader request. Open Webview to read this chapter.");
     }
     throw new Error("Asura chapter returned HTTP " + res.statusCode);
   }
@@ -682,6 +684,38 @@ async getPageList(url) {
   }
 
   return pages;
+}
+
+async getChapterPagesViaWebview(url) {
+  if (typeof evaluateJavascriptViaWebview !== "function") return [];
+
+  // Asura passes the ordered page list to its reader as Astro island props.
+  const script = `(() => {
+    for (const island of document.querySelectorAll('astro-island[props]')) {
+      const props = JSON.parse(island.getAttribute('props'));
+      const pages = props.pages && props.pages[1];
+      if (!Array.isArray(pages) || !pages.length) continue;
+      const urls = pages.map(entry => {
+        const page = entry && entry[1];
+        if (!page || (page.tiles && page.tiles[1] && page.tiles[1].length)) return '';
+        const src = page.url && page.url[1];
+        return typeof src === 'string' && src ? new URL(src, location.href).href : '';
+      });
+      if (urls.every(src => /^https?:/i.test(src))) {
+        window.flutter_inappwebview.callHandler('setResponse', JSON.stringify(urls));
+        return;
+      }
+    }
+  })()`;
+
+  try {
+    const result = await evaluateJavascriptViaWebview(url, {}, [script], 15);
+    const pages = JSON.parse(result);
+    return Array.isArray(pages) && pages.every(src => typeof src === "string" && /^https?:\/\//i.test(src))
+      ? pages : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 
