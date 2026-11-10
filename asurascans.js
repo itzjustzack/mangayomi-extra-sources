@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.21",
+    "version": "0.0.22",
     "pkgPath": "",
-    "notes": "Loads chapters through Webview first to avoid unnecessary Cloudflare alerts.",
+    "notes": "Uses Webview to refresh manga details and load chapters.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.21",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.22",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -384,18 +384,28 @@ async search(query, page, filters) {
     
 
 async getDetail(url) {
-  const client = new Client();
   const fullUrl = url.startsWith("http")
     ? url
     : "https://asurascans.com" + url;
 
-  const res = await client.get(
-    fullUrl,
-    this.getHeaders(fullUrl)
-  );
-
-  if (res.statusCode != 200) throw new Error("Asura details returned HTTP " + res.statusCode);
-  const doc = new Document(res.body);
+  // Use the same browser path as the chapter reader to avoid a native 403.
+  let html = "";
+  if (typeof evaluateJavascriptViaWebview === "function") {
+    const script = `(() => {
+      if (document.querySelector('h1') && document.querySelector('a[href*="/chapter/"]')) {
+        window.flutter_inappwebview.callHandler('setResponse', document.documentElement.outerHTML);
+      }
+    })()`;
+    try {
+      html = await evaluateJavascriptViaWebview(fullUrl, {}, [script], 15);
+    } catch (_) {}
+  }
+  if (!html) {
+    const res = await new Client().get(fullUrl, this.getHeaders(fullUrl));
+    if (res.statusCode !== 200) throw new Error("Asura details returned HTTP " + res.statusCode);
+    html = res.body;
+  }
+  const doc = new Document(html);
   const title = doc.selectFirst("h1");
   if (!title) throw new Error("Asura did not return a manga details page");
 
