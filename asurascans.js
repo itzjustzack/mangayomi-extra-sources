@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.18",
+    "version": "0.0.19",
     "pkgPath": "",
-    "notes": "Fixes manga covers showing wide social preview cards.",
+    "notes": "Fixes request headers for Cloudflare verification.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.18",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.19",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -75,7 +75,7 @@ class DefaultExtension extends MProvider {
     
 getHeaders(url) {
   return {
-    "User-Agent": "Mozilla/5.0",
+    // Let Mangayomi supply the browser identity paired with its verification cookies.
     "Referer": "https://asurascans.com/"
   };
 }
@@ -653,6 +653,13 @@ async getPageList(url) {
     fullUrl,
     this.getHeaders(fullUrl)
   );
+
+  if (res.statusCode !== 200) {
+    if (res.headers && res.headers["cf-mitigated"] === "challenge") {
+      throw new Error("Asura requires Cloudflare verification. Tap Resolve challenge, then Retry.");
+    }
+    throw new Error("Asura chapter returned HTTP " + res.statusCode);
+  }
 
   const doc = new Document(res.body);
   const images = doc.select("img");
