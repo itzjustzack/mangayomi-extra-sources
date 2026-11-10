@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.23",
+    "version": "0.0.24",
     "pkgPath": "",
-    "notes": "Pauses Asura requests after a rate limit.",
+    "notes": "Supports chapter images rendered after Webview loads.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.23",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.24",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -736,21 +736,53 @@ async getChapterPagesViaWebview(url) {
 
   // Asura passes the ordered page list to its reader as Astro island props.
   const script = `(() => {${asuraRateLimitCheck}
+    const sendPages = urls => window.flutter_inappwebview.callHandler('setResponse', JSON.stringify(urls));
+    const imageUrl = src => {
+      if (typeof src !== 'string' || !src.trim()) return '';
+      try {
+        const image = new URL(src, location.href);
+        return /^https?:$/.test(image.protocol) ? image.href : '';
+      } catch (_) {
+        return '';
+      }
+    };
     for (const island of document.querySelectorAll('astro-island[props]')) {
-      const props = JSON.parse(island.getAttribute('props'));
+      let props;
+      try { props = JSON.parse(island.getAttribute('props')); } catch (_) { continue; }
+      if (!props) continue;
       const pages = props.pages && props.pages[1];
       if (!Array.isArray(pages) || !pages.length) continue;
+      if (pages.some(entry => entry && entry[1] && entry[1].tiles &&
+          entry[1].tiles[1] && entry[1].tiles[1].length)) return;
       const urls = pages.map(entry => {
         const page = entry && entry[1];
-        if (!page || (page.tiles && page.tiles[1] && page.tiles[1].length)) return '';
-        const src = page.url && page.url[1];
-        return typeof src === 'string' && src ? new URL(src, location.href).href : '';
+        return imageUrl(page && page.url && page.url[1]);
       });
-      if (urls.every(src => /^https?:/i.test(src))) {
-        window.flutter_inappwebview.callHandler('setResponse', JSON.stringify(urls));
+      if (urls.every(Boolean)) {
+        sendPages(urls);
         return;
       }
     }
+
+    // Some chapter images only appear after the site's reader initializes.
+    // Accept numbered page images and ignore the site's logos and covers.
+    let previous = '';
+    let stable = 0;
+    let attempts = 0;
+    const timer = setInterval(() => {
+      const images = Array.from(document.querySelectorAll('img[alt]'))
+        .filter(img => /^page\\s+\\d+$/i.test(img.alt.trim()));
+      const urls = images.map(img => imageUrl(img.getAttribute('data-src')) || imageUrl(img.currentSrc || img.getAttribute('src')));
+      const signature = urls.length && urls.every(Boolean) ? JSON.stringify(urls) : '';
+      stable = signature && signature === previous ? stable + 1 : 0;
+      previous = signature;
+      if (stable >= 3) {
+        clearInterval(timer);
+        sendPages(urls);
+      } else if (++attempts >= 20) {
+        clearInterval(timer);
+      }
+    }, 400);
   })()`;
 
   let result;
