@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.24",
+    "version": "0.0.25",
     "pkgPath": "",
-    "notes": "Supports chapter images rendered after Webview loads.",
+    "notes": "Waits longer for chapter images and reports Webview failures.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.24",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.25",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -692,8 +692,8 @@ async getPageList(url) {
     : "https://asurascans.com" + url;
 
   // Mangayomi displays a challenge banner as soon as a native request is blocked.
-  const browserPages = await this.getChapterPagesViaWebview(fullUrl);
-  if (browserPages.length) return browserPages;
+  const browser = await this.getChapterPagesViaWebview(fullUrl);
+  if (browser.pages) return browser.pages;
 
   const res = await new Client().get(
     fullUrl,
@@ -703,7 +703,8 @@ async getPageList(url) {
   if (res.statusCode === 429) await stopForAsuraRateLimit(res);
   if (res.statusCode !== 200) {
     if (res.statusCode === 403 || (res.headers && res.headers["cf-mitigated"] === "challenge")) {
-      throw new Error("Asura blocked the reader request. Open Webview to read this chapter.");
+      throw new Error("Asura reader request was blocked (HTTP " + res.statusCode + "). " +
+        browser.reason + " Open Webview to read this chapter.");
     }
     throw new Error("Asura chapter returned HTTP " + res.statusCode);
   }
@@ -732,11 +733,14 @@ async getPageList(url) {
 }
 
 async getChapterPagesViaWebview(url) {
-  if (typeof evaluateJavascriptViaWebview !== "function") return [];
+  if (typeof evaluateJavascriptViaWebview !== "function") {
+    return { reason: "This Mangayomi version has no background Webview support." };
+  }
 
   // Asura passes the ordered page list to its reader as Astro island props.
   const script = `(() => {${asuraRateLimitCheck}
-    const sendPages = urls => window.flutter_inappwebview.callHandler('setResponse', JSON.stringify(urls));
+    const send = result => window.flutter_inappwebview.callHandler('setResponse', result);
+    const sendPages = urls => send(JSON.stringify(urls));
     const imageUrl = src => {
       if (typeof src !== 'string' || !src.trim()) return '';
       try {
@@ -753,7 +757,10 @@ async getChapterPagesViaWebview(url) {
       const pages = props.pages && props.pages[1];
       if (!Array.isArray(pages) || !pages.length) continue;
       if (pages.some(entry => entry && entry[1] && entry[1].tiles &&
-          entry[1].tiles[1] && entry[1].tiles[1].length)) return;
+          entry[1].tiles[1] && entry[1].tiles[1].length)) {
+        send('ASURA_TILED_PAGES');
+        return;
+      }
       const urls = pages.map(entry => {
         const page = entry && entry[1];
         return imageUrl(page && page.url && page.url[1]);
@@ -771,7 +778,7 @@ async getChapterPagesViaWebview(url) {
     let attempts = 0;
     const timer = setInterval(() => {
       const images = Array.from(document.querySelectorAll('img[alt]'))
-        .filter(img => /^page\\s+\\d+$/i.test(img.alt.trim()));
+        .filter(img => /^page\\s+\\d+(?:\\s+of\\s+\\d+)?$/i.test(img.alt.trim()));
       const urls = images.map(img => imageUrl(img.getAttribute('data-src')) || imageUrl(img.currentSrc || img.getAttribute('src')));
       const signature = urls.length && urls.every(Boolean) ? JSON.stringify(urls) : '';
       stable = signature && signature === previous ? stable + 1 : 0;
@@ -779,26 +786,32 @@ async getChapterPagesViaWebview(url) {
       if (stable >= 3) {
         clearInterval(timer);
         sendPages(urls);
-      } else if (++attempts >= 20) {
+      } else if (++attempts >= 30) {
         clearInterval(timer);
+        ${asuraRateLimitCheck}
+        send(document.querySelector('#challenge-form, #cf-challenge-running') || /just a moment/i.test(document.title)
+          ? 'ASURA_CHALLENGE' : 'ASURA_NO_PAGES');
       }
     }, 400);
   })()`;
 
   let result;
   try {
-    result = await evaluateJavascriptViaWebview(url, {}, [script], 15);
+    result = await evaluateJavascriptViaWebview(url, {}, [script], 20);
   } catch (_) {
-    return [];
+    return { reason: "The background Webview failed to start or load." };
   }
   if (result === "ASURA_RATE_LIMITED") await stopForAsuraRateLimit();
+  if (result === "ASURA_CHALLENGE") return { reason: "Cloudflare challenged the background Webview too." };
+  if (result === "ASURA_TILED_PAGES") return { reason: "This chapter uses tiled images that require Asura’s reader." };
+  if (result === "ASURA_NO_PAGES") return { reason: "The background Webview did not expose chapter images." };
   try {
     const pages = JSON.parse(result);
-    return Array.isArray(pages) && pages.every(src => typeof src === "string" && /^https?:\/\//i.test(src))
-      ? pages : [];
-  } catch (error) {
-    return [];
-  }
+    if (Array.isArray(pages) && pages.length && pages.every(src => typeof src === "string" && /^https?:\/\//i.test(src))) {
+      return { pages };
+    }
+  } catch (_) {}
+  return { reason: "The background Webview returned no usable result." };
 }
 
 
