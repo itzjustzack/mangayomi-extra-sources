@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.26",
+    "version": "0.0.27",
     "pkgPath": "",
-    "notes": "Rebuilds manga updates using the public details and chapter-list API.",
+    "notes": "Handles both wrapped and unwrapped API details responses.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.26",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.27",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -431,7 +431,7 @@ async getApiDetail(url) {
     return JSON.parse(response.body);
   };
   const details = await request(endpoint);
-  const series = details.series;
+  const series = details.series || (details.data && details.data.series);
   if (!series || !series.title || series.slug !== slug) throw new Error("Asura returned unexpected manga details");
   const list = await request(endpoint + "/chapters");
   if (!Array.isArray(list.data) || (list.meta && list.meta.has_more)) {
