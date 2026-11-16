@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.28",
+    "version": "0.0.29",
     "pkgPath": "",
-    "notes": "Loads chapter pages directly from the public API.",
+    "notes": "Keeps chapter numbers alongside custom chapter titles.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.28",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.29",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -436,7 +436,7 @@ async getApiDetail(url) {
     }
     const date = Date.parse(chapter.published_at);
     return {
-      name: chapter.title || "Chapter " + chapter.number,
+      name: "Chapter " + chapter.number + (chapter.title ? " - " + cleanAsuraText(chapter.title) : ""),
       // Keep the stored manga path so existing chapter progress still matches.
       url: path + "/chapter/" + chapter.number,
       dateUpload: Number.isFinite(date) && date > 0 ? String(date) : ""
