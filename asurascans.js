@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.27",
+    "version": "0.0.28",
     "pkgPath": "",
-    "notes": "Handles both wrapped and unwrapped API details responses.",
+    "notes": "Loads chapter pages directly from the public API.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.27",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.28",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -86,14 +86,6 @@ async function stopForAsuraRateLimit(response) {
   await prefs.setString(asuraRateLimitKey, String(asuraRateLimitUntil));
   throw new Error("Asura is rate limiting requests. Try again later.");
 }
-
-// Run in Webview and return immediately when Cloudflare serves its 1015 page.
-const asuraRateLimitCheck = `
-  if (/\\berror\\s+1015\\b/i.test(document.body ? document.body.innerText : '') &&
-      /rate limit/i.test(document.body.innerText)) {
-    window.flutter_inappwebview.callHandler('setResponse', 'ASURA_RATE_LIMITED');
-    return;
-  }`;
 
 class DefaultExtension extends MProvider {
     /**
@@ -544,134 +536,30 @@ async getApiDetail(url) {
     
 async getPageList(url) {
   await checkAsuraCooldown();
-  const fullUrl = url.startsWith("http")
-    ? url
-    : "https://asurascans.com" + url;
-
-  // Mangayomi displays a challenge banner as soon as a native request is blocked.
-  const browser = await this.getChapterPagesViaWebview(fullUrl);
-  if (browser.pages) return browser.pages;
-
-  const res = await new Client().get(
-    fullUrl,
-    this.getHeaders(fullUrl)
-  );
-
-  if (res.statusCode === 429) await stopForAsuraRateLimit(res);
-  if (res.statusCode !== 200) {
-    if (res.statusCode === 403 || (res.headers && res.headers["cf-mitigated"] === "challenge")) {
-      throw new Error("Asura reader request was blocked (HTTP " + res.statusCode + "). " +
-        browser.reason + " Open Webview to read this chapter.");
-    }
-    throw new Error("Asura chapter returned HTTP " + res.statusCode);
+  const path = String(url).replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0];
+  const match = path.match(/^\/comics\/([^/]+)\/chapter\/(\d+(?:\.\d+)?)\/?$/);
+  if (!match) throw new Error("Asura chapter URL is not supported: " + path);
+  const slug = match[1].replace(/-[a-f0-9]{8}$/i, "");
+  const endpoint = "https://api.asurascans.com/api/series/" + encodeURIComponent(slug) +
+    "/chapters/" + match[2];
+  const response = await new Client().get(endpoint, this.getHeaders(endpoint));
+  if (response.statusCode === 429) await stopForAsuraRateLimit(response);
+  if (response.statusCode !== 200) throw new Error("Asura chapter API returned HTTP " + response.statusCode);
+  const body = JSON.parse(response.body);
+  const data = body.data || body;
+  if (data.access_gate) throw new Error("Asura requires access to this chapter: " + data.access_gate);
+  const chapter = data.chapter;
+  if (!chapter || Number(chapter.number) !== Number(match[2]) || !Array.isArray(chapter.pages) || !chapter.pages.length) {
+    throw new Error("Asura returned no usable chapter pages");
   }
-
-  const doc = new Document(res.body);
-  const images = doc.select("img");
-  const pages = [];
-
-  for (const img of images) {
-    let src = img.attr("data-src") ||
-              img.attr("src") ||
-              "";
-
-    if (!src) continue;
-
-    if (src.startsWith("/")) {
-      src = "https://asurascans.com" + src;
+  return chapter.pages.map(page => {
+    if (page.tiles && page.tiles.length) throw new Error("This Asura chapter uses tiled images. Open Webview to read it.");
+    if (typeof page.url !== "string" || !/^https?:\/\//i.test(page.url)) {
+      throw new Error("Asura returned an invalid chapter image");
     }
-
-    if (!src.startsWith("http")) continue;
-
-    pages.push(src);
-  }
-
-  return pages;
+    return { url: page.url, headers: this.getHeaders(page.url) };
+  });
 }
-
-async getChapterPagesViaWebview(url) {
-  if (typeof evaluateJavascriptViaWebview !== "function") {
-    return { reason: "This Mangayomi version has no background Webview support." };
-  }
-
-  // Asura passes the ordered page list to its reader as Astro island props.
-  const script = `(() => {${asuraRateLimitCheck}
-    const send = result => window.flutter_inappwebview.callHandler('setResponse', result);
-    const sendPages = urls => send(JSON.stringify(urls));
-    const imageUrl = src => {
-      if (typeof src !== 'string' || !src.trim()) return '';
-      try {
-        const image = new URL(src, location.href);
-        return /^https?:$/.test(image.protocol) ? image.href : '';
-      } catch (_) {
-        return '';
-      }
-    };
-    for (const island of document.querySelectorAll('astro-island[props]')) {
-      let props;
-      try { props = JSON.parse(island.getAttribute('props')); } catch (_) { continue; }
-      if (!props) continue;
-      const pages = props.pages && props.pages[1];
-      if (!Array.isArray(pages) || !pages.length) continue;
-      if (pages.some(entry => entry && entry[1] && entry[1].tiles &&
-          entry[1].tiles[1] && entry[1].tiles[1].length)) {
-        send('ASURA_TILED_PAGES');
-        return;
-      }
-      const urls = pages.map(entry => {
-        const page = entry && entry[1];
-        return imageUrl(page && page.url && page.url[1]);
-      });
-      if (urls.every(Boolean)) {
-        sendPages(urls);
-        return;
-      }
-    }
-
-    // Some chapter images only appear after the site's reader initializes.
-    // Accept numbered page images and ignore the site's logos and covers.
-    let previous = '';
-    let stable = 0;
-    let attempts = 0;
-    const timer = setInterval(() => {
-      const images = Array.from(document.querySelectorAll('img[alt]'))
-        .filter(img => /^page\\s+\\d+(?:\\s+of\\s+\\d+)?$/i.test(img.alt.trim()));
-      const urls = images.map(img => imageUrl(img.getAttribute('data-src')) || imageUrl(img.currentSrc || img.getAttribute('src')));
-      const signature = urls.length && urls.every(Boolean) ? JSON.stringify(urls) : '';
-      stable = signature && signature === previous ? stable + 1 : 0;
-      previous = signature;
-      if (stable >= 3) {
-        clearInterval(timer);
-        sendPages(urls);
-      } else if (++attempts >= 30) {
-        clearInterval(timer);
-        ${asuraRateLimitCheck}
-        send(document.querySelector('#challenge-form, #cf-challenge-running') || /just a moment/i.test(document.title)
-          ? 'ASURA_CHALLENGE' : 'ASURA_NO_PAGES');
-      }
-    }, 400);
-  })()`;
-
-  let result;
-  try {
-    result = await evaluateJavascriptViaWebview(url, {}, [script], 20);
-  } catch (_) {
-    return { reason: "The background Webview failed to start or load." };
-  }
-  if (result === "ASURA_RATE_LIMITED") await stopForAsuraRateLimit();
-  if (result === "ASURA_CHALLENGE") return { reason: "Cloudflare challenged the background Webview too." };
-  if (result === "ASURA_TILED_PAGES") return { reason: "This chapter uses tiled images that require Asura’s reader." };
-  if (result === "ASURA_NO_PAGES") return { reason: "The background Webview did not expose chapter images." };
-  try {
-    const pages = JSON.parse(result);
-    if (Array.isArray(pages) && pages.length && pages.every(src => typeof src === "string" && /^https?:\/\//i.test(src))) {
-      return { pages };
-    }
-  } catch (_) {}
-  return { reason: "The background Webview returned no usable result." };
-}
-
-
     /**
      * Optional. Returns the filters shown on the search screen, for example
      * a genre or status selector. Return [] for no filters.
