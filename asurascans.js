@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.29",
+    "version": "0.0.30",
     "pkgPath": "",
-    "notes": "Keeps chapter numbers alongside custom chapter titles.",
+    "notes": "Fixes conflicting episode headings and public chapter-count differences.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.29",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.30",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -435,15 +435,20 @@ async getApiDetail(url) {
       throw new Error("Asura returned an invalid chapter");
     }
     const date = Date.parse(chapter.published_at);
+    const title = cleanAsuraText(chapter.title || "");
+    // Mangayomi prioritizes episode headings anywhere in a name over Chapter N.
+    const hasEpisodeHeading = /\b(?:folge|episode|episodio|ep\.?)\s*\d/i.test(title);
     return {
-      name: "Chapter " + chapter.number + (chapter.title ? " - " + cleanAsuraText(chapter.title) : ""),
+      name: "Chapter " + chapter.number + (title && !hasEpisodeHeading ? " - " + title : ""),
       // Keep the stored manga path so existing chapter progress still matches.
       url: path + "/chapter/" + chapter.number,
       dateUpload: Number.isFinite(date) && date > 0 ? String(date) : ""
     };
   });
-  if (chapters.length < Number(series.chapter_count || 0)) {
-    throw new Error("Asura returned fewer chapters than its published chapter count");
+  // The headline count can include a chapter absent from the public list.
+  // Pagination is checked above; a nonempty public list remains usable.
+  if (!chapters.length && Number(series.chapter_count || 0) > 0) {
+    throw new Error("Asura returned no chapters for this manga");
   }
   const descriptionHtml = String(series.description || "").replace(/\\u([0-9a-f]{4})/gi,
     (_, hex) => String.fromCharCode(parseInt(hex, 16)));
