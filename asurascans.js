@@ -8,14 +8,14 @@ const mangayomiSources = [
     "typeSource": "single",
     "itemType": 0,
     "isNsfw": false,
-    "version": "0.0.25",
+    "version": "0.0.26",
     "pkgPath": "",
-    "notes": "Waits longer for chapter images and reports Webview failures.",
+    "notes": "Rebuilds manga updates using the public details and chapter-list API.",
     "id": 2847619031,
     "dateFormat": "",
     "dateFormatLocale": "",
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.25",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/asurascans.js?v=0.0.26",
     "isManga": true,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
@@ -415,206 +415,63 @@ async search(query, page, filters) {
 
 async getDetail(url) {
   await checkAsuraCooldown();
-  const fullUrl = url.startsWith("http")
-    ? url
-    : "https://asurascans.com" + url;
-
-  // Use the same browser path as the chapter reader to avoid a native 403.
-  let html = "";
-  if (typeof evaluateJavascriptViaWebview === "function") {
-    const script = `(() => {${asuraRateLimitCheck}
-      if (document.querySelector('h1') && document.querySelector('a[href*="/chapter/"]')) {
-        window.flutter_inappwebview.callHandler('setResponse', document.documentElement.outerHTML);
-      }
-    })()`;
-    try {
-      html = await evaluateJavascriptViaWebview(fullUrl, {}, [script], 15);
-    } catch (_) {}
-  }
-  if (html === "ASURA_RATE_LIMITED") await stopForAsuraRateLimit();
-  if (!html) {
-    const res = await new Client().get(fullUrl, this.getHeaders(fullUrl));
-    if (res.statusCode === 429) await stopForAsuraRateLimit(res);
-    if (res.statusCode !== 200) throw new Error("Asura details returned HTTP " + res.statusCode);
-    html = res.body;
-  }
-  const doc = new Document(html);
-  const title = doc.selectFirst("h1");
-  if (!title) throw new Error("Asura did not return a manga details page");
-
-  // Prefer full on-page text; SEO descriptions are deliberately truncated.
-  const textOf = selector => {
-    const node = doc.selectFirst(selector);
-    return node ? cleanAsuraText(node.text) : "";
-  };
-  let schema = {};
-  for (const script of doc.select('script[type="application/ld+json"]')) {
-    try {
-      const parsed = JSON.parse(script.text);
-      const items = Array.isArray(parsed) ? parsed : (parsed["@graph"] || [parsed]);
-      const found = items.find(item => item["@type"] === "ComicSeries");
-      if (found) { schema = found; break; }
-    } catch (_) {}
-  }
-  const creator = (value, selector) => {
-    const names = Array.isArray(value) ? value : [value];
-    return names.map(item => typeof item === "string" ? item : (item && item.name) || "")
-      .filter(Boolean).join(", ") || textOf(selector);
-  };
-  const author = creator(schema.author, 'a[href*="author="]');
-  const artist = creator(schema.illustrator, 'a[href*="artist="]');
-  const genres = Array.isArray(schema.genre) ? schema.genre.slice() :
-    doc.select('a[href*="genres="]').map(item => cleanAsuraText(item.text));
-  const uniqueGenres = Array.from(new Set(genres.filter(Boolean)));
-  const statusText = textOf('a[href*="status="]') || textOf('[data-series-status]');
-  // The desktop details panel stores Status and Type in label/value rows.
-  const detailValue = label => {
-    for (const row of doc.select('div.flex-1.rounded.px-4.py-3')) {
-      const text = cleanAsuraText(row.text).replace(/\s+/g, " ");
-      if (text.toLowerCase().startsWith(label.toLowerCase())) return text.slice(label.length).trim();
-    }
-    return "";
-  };
-  const publishingStatus = (statusText || detailValue("Status")).toLowerCase();
-  const statusMap = { ongoing: 0, completed: 1, hiatus: 2, dropped: 3, axed: 3, cancelled: 3, canceled: 3 };
-  const parts = [];
-  const synopsis = textOf("#description-text") || schema.description ||
-    (() => { const node = doc.selectFirst('meta[name="description"]'); return node ? node.attr("content") : ""; })();
-  const rating = schema.aggregateRating;
-  if (rating && Number(rating.ratingValue) > 0) {
-    parts.push("Asura Rating: " + rating.ratingValue + "/" + (rating.bestRating || "10"));
-  }
-  if (synopsis) parts.push(cleanAsuraText(synopsis));
-
-
-  return {
-    name: title
-  ? cleanAsuraText(title.text)
-  : "Title not found",
-    
-imageUrl: (() => {
-  // og:image is a wide social card containing text, not the manga cover.
-  let src = "";
-  for (const selector of ['#mobile-cover-img', '#cover-viewer-img', 'img[src*="/covers/"]']) {
-    const img = doc.selectFirst(selector);
-    if (!img) continue;
-    const candidate = img.attr("data-full-src") || img.attr("data-src") || img.attr("src") || "";
-    if (candidate && !/default-cover|\/og\//i.test(candidate)) {
-      src = candidate;
-      break;
-    }
-  }
-
-  if (src.startsWith("/")) {
-    src = "https://asurascans.com" + src;
-  }
-
-  return src;
-})(),
-
-    
-description: parts.join("\n\n"),
-    author,
-    artist,
-    status: Object.prototype.hasOwnProperty.call(statusMap, publishingStatus) ? statusMap[publishingStatus] : 5,
-    genre: uniqueGenres,
-    chapters: doc.select('a[href*="/chapter/"]')
-  .map(item => ({
-
-
-name: (() => {
-  const title = item.selectFirst("span");
-  const name = title ? title.text.trim() : item.text.trim();
-
-
-if (name.toLowerCase().includes("test")) {
-  return "Chapter 0 - Test";
+  return await this.getApiDetail(url);
 }
 
-  if (name === "First Chapter") {
-    return "Chapter 1";
+async getApiDetail(url) {
+  const path = String(url).replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0].replace(/\/$/, "");
+  const match = path.match(/^\/comics\/([^/]+)$/);
+  if (!match) throw new Error("Asura manga URL is not supported: " + path);
+  const slug = match[1].replace(/-[a-f0-9]{8}$/i, "");
+  const endpoint = "https://api.asurascans.com/api/series/" + encodeURIComponent(slug);
+  const request = async address => {
+    const response = await new Client().get(address, this.getHeaders(address));
+    if (response.statusCode === 429) await stopForAsuraRateLimit(response);
+    if (response.statusCode !== 200) throw new Error("Asura API returned HTTP " + response.statusCode);
+    return JSON.parse(response.body);
+  };
+  const details = await request(endpoint);
+  const series = details.series;
+  if (!series || !series.title || series.slug !== slug) throw new Error("Asura returned unexpected manga details");
+  const list = await request(endpoint + "/chapters");
+  if (!Array.isArray(list.data) || (list.meta && list.meta.has_more)) {
+    throw new Error("Asura returned an incomplete chapter list");
   }
-
-  
-if (name.toLowerCase().includes("test chapter")) {
-  return "Chapter 0 - Test";
-}
-
-
-  return name;
-})(),
-
-
-
-    
-url: item.attr("href"),
-
-dateUpload: (() => {
-  const dateElement = item.selectFirst(
-    "div.text-right span"
-  );
-
-  if (!dateElement) return 0;
-
-  const dateText = dateElement.text.trim();
-  
-const lower = dateText.toLowerCase();
-const now = Date.now();
-let timestamp;
-
-if (lower === "today") {
-  timestamp = now;
-} else if (lower === "yesterday") {
-  timestamp = now - 86400000;
-} else if (lower === "last week") {
-  timestamp = now - 7 * 86400000;
-} else {
-  const match = lower.match(
-    /(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago/
-  );
-
-  if (match) {
-    const units = {
-      minute: 60000,
-      hour: 3600000,
-      day: 86400000,
-      week: 604800000,
-      month: 2592000000,
-      year: 31536000000
+  const chapters = list.data.map(chapter => {
+    if (!Number.isFinite(Number(chapter.number)) || chapter.number === null ||
+        (chapter.series_id && chapter.series_id !== series.id)) {
+      throw new Error("Asura returned an invalid chapter");
+    }
+    const date = Date.parse(chapter.published_at);
+    return {
+      name: chapter.title || "Chapter " + chapter.number,
+      // Keep the stored manga path so existing chapter progress still matches.
+      url: path + "/chapter/" + chapter.number,
+      dateUpload: Number.isFinite(date) && date > 0 ? String(date) : ""
     };
-
-    timestamp = now - Number(match[1]) * units[match[2]];
-  } else {
-    timestamp = Date.parse(dateText);
+  });
+  if (chapters.length < Number(series.chapter_count || 0)) {
+    throw new Error("Asura returned fewer chapters than its published chapter count");
   }
-}
-
-
-  
-
-return Number.isFinite(timestamp)
-  ? String(Math.floor(timestamp))
-  : "";
-
-
-})()
-
-  }))
-  
-.filter(item =>
-  item.url &&
-  item.name &&
-  !item.name.toLowerCase().includes("test") &&
-  (
-    /^Chapter\s+\d+(?:\.\d+)?\b/i.test(item.name) ||
-    /^(Prologue|Epilogue|Side Story|Special)\b/i.test(item.name)
-  )
-)
-
+  const descriptionHtml = String(series.description || "").replace(/\\u([0-9a-f]{4})/gi,
+    (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  const synopsis = cleanAsuraText(new Document("<div>" + descriptionHtml + "</div>").selectFirst("div").text);
+  const rating = Number(series.rating);
+  const description = [];
+  if (rating > 0) description.push("Asura Rating: " + Number(rating.toFixed(2)) + "/10");
+  if (synopsis) description.push(synopsis);
+  const statuses = { ongoing: 0, completed: 1, hiatus: 2, dropped: 3, axed: 3, cancelled: 3, canceled: 3 };
+  return {
+    name: cleanAsuraText(series.title),
+    imageUrl: series.cover_url || series.cover || "",
+    description: description.join("\n\n"),
+    author: cleanAsuraText(series.author || ""),
+    artist: cleanAsuraText(series.artist || ""),
+    status: Object.prototype.hasOwnProperty.call(statuses, series.status) ? statuses[series.status] : 5,
+    genre: (series.genres || []).map(genre => cleanAsuraText(typeof genre === "string" ? genre : genre.name)),
+    chapters
   };
 }
-
-
 
     // For novel html content
     /**
