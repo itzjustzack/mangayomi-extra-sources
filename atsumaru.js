@@ -14,16 +14,16 @@ const mangayomiSources = [
     "dateFormatLocale": "",
     "isNsfw": false,
     "hasCloudflare": false,
-    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/atsumaru.js?v=0.0.4",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/itzjustzack/mangayomi-extra-sources/main/atsumaru.js?v=0.0.5",
     "apiUrl": "",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "isManga": true,
     "itemType": 0,
     "isFullData": false,
     "appMinVerReq": "0.5.0",
     "additionalParams": "",
     "sourceCodeLanguage": 1,
-    "notes": "Personal v0.0.3 - current browsing API."
+    "notes": "Fixes search errors from an unsupported rating filter."
   }
 ];
 
@@ -199,7 +199,8 @@ class DefaultExtension extends MProvider {
       filterBy.push("officialTranslation:=true");
     }
 
-    filterBy.push("(mbContentRating:=[`Safe`,`Suggestive`,`Erotica`] || mbContentRating:!=*)");
+    // Exclude the fourth MangaBaka rating while allowing unrated entries.
+    filterBy.push("mbContentRating:!=`Pornographic`");
     filterBy.push("views:>0");
 
     var params = [];
